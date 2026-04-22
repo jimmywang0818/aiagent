@@ -1,11 +1,9 @@
 'use strict';
 
-const Anthropic = require('@anthropic-ai/sdk');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-const client = new Anthropic();
-
-// Conversation history per room: Map<roomId, Message[]>
-const conversations = new Map();
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
 const SYSTEM_PROMPT = `你是一位專業的電商客服 AI 助理。
 請用親切、簡潔的繁體中文回答顧客問題。
@@ -23,26 +21,24 @@ const SYSTEM_PROMPT = `你是一位專業的電商客服 AI 助理。
 - 顧客情緒激動或強烈不滿
 - 問題超出你的知識範圍`;
 
+// Conversation history per room: Map<roomId, ChatSession>
+const chatSessions = new Map();
+
 /**
  * Process a customer message and return { reply, shouldTransfer }.
  */
 async function getAIReply({ roomId, userText }) {
-  if (!conversations.has(roomId)) {
-    conversations.set(roomId, []);
+  if (!chatSessions.has(roomId)) {
+    const chat = model.startChat({
+      history: [],
+      systemInstruction: SYSTEM_PROMPT,
+    });
+    chatSessions.set(roomId, chat);
   }
-  const history = conversations.get(roomId);
 
-  history.push({ role: 'user', content: userText });
-
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    messages: history,
-  });
-
-  const reply = response.content[0].text;
-  history.push({ role: 'assistant', content: reply });
+  const chat = chatSessions.get(roomId);
+  const result = await chat.sendMessage(userText);
+  const reply = result.response.text();
 
   const shouldTransfer = reply.includes('[TRANSFER_TO_HUMAN]');
   return { reply: shouldTransfer ? null : reply, shouldTransfer };
@@ -52,7 +48,7 @@ async function getAIReply({ roomId, userText }) {
  * Clear conversation history for a room (call on ai-session:close).
  */
 function clearHistory(roomId) {
-  conversations.delete(roomId);
+  chatSessions.delete(roomId);
 }
 
 module.exports = { getAIReply, clearHistory };
