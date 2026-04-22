@@ -42,7 +42,17 @@ app.post(WEBHOOK_PATH, async (req, res) => {
     if (sender.type !== 'customer') continue;
     if (content.type !== 'text') continue;
 
-    const userText = content.text;
+    const userText = content.text.trim();
+
+    // Ignore LINE rich menu / postback trigger messages (e.g. "Menu-5", "menu_1")
+    if (/^menu[-_]?\d*$/i.test(userText)) {
+      console.log(`[webhook] Ignored menu trigger: "${userText}"`);
+      continue;
+    }
+
+    // Ignore empty messages
+    if (!userText) continue;
+
     console.log(`[webhook] [${platform}] room=${roomId} user="${userText}"`);
 
     try {
