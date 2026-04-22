@@ -43,7 +43,7 @@ async function loadAllProducts() {
   let page = 1;
 
   while (true) {
-    const res = await fetch(`${BASE_URL}/v1/products?page=${page}&per_page=100`, { headers: getHeaders() });
+    const res = await fetch(`${BASE_URL}/v1/products?page=${page}&per_page=20`, { headers: getHeaders() });
     if (!res.ok) {
       console.error(`[cyberbiz] loadAllProducts failed on page ${page}: ${res.status}`);
       break;
