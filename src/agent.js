@@ -5,7 +5,7 @@ const { searchProducts } = require('./cyberbiz');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const SYSTEM_PROMPT = `你是一位專業的電商客服 AI 助理，服務品牌為 PowerHero。
+const SYSTEM_PROMPT = `你是一位專業的電商客服 AI 助理，服務品牌為達摩本草。
 請用親切、簡潔的繁體中文回答顧客問題。
 
 當顧客詢問任何商品相關問題（名稱、價格、庫存、規格、推薦等），
