@@ -5,6 +5,7 @@ require('dotenv').config();
 const express = require('express');
 const { sendMessage, transferToHuman } = require('./omnichat');
 const { getAIReply, clearHistory } = require('./agent');
+const { loadAllProducts } = require('./cyberbiz');
 
 const app = express();
 app.use(express.json());
@@ -64,7 +65,8 @@ app.post(WEBHOOK_PATH, async (req, res) => {
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`[server] Omnichat AI Agent running on port ${PORT}`);
   console.log(`[server] Webhook endpoint: ${WEBHOOK_PATH}`);
+  await loadAllProducts();
 });
