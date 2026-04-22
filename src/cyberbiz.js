@@ -4,10 +4,12 @@ require('dotenv').config();
 
 const BASE_URL = 'https://app-store-api.cyberbiz.io';
 
-const headers = {
-  'Authorization': `Bearer ${process.env.CYBERBIZ_API_TOKEN}`,
-  'Accept': 'application/json',
-};
+function getHeaders() {
+  return {
+    'Authorization': `Bearer ${process.env.CYBERBIZ_API_TOKEN}`,
+    'Accept': 'application/json',
+  };
+}
 
 // In-memory product cache
 let productCache = [];
@@ -41,7 +43,7 @@ async function loadAllProducts() {
   let page = 1;
 
   while (true) {
-    const res = await fetch(`${BASE_URL}/v1/products?page=${page}&per_page=100`, { headers });
+    const res = await fetch(`${BASE_URL}/v1/products?page=${page}&per_page=100`, { headers: getHeaders() });
     if (!res.ok) {
       console.error(`[cyberbiz] loadAllProducts failed on page ${page}: ${res.status}`);
       break;
@@ -86,7 +88,7 @@ async function searchProducts(keyword, limit = 5) {
   if (!results.length) {
     console.log(`[cyberbiz] Local search empty for "${keyword}", trying API search`);
     const url = `${BASE_URL}/v1/products/search?q=${encodeURIComponent(keyword)}&limit=${limit}&filter_published=true`;
-    const res = await fetch(url, { headers });
+    const res = await fetch(url, { headers: getHeaders() });
     if (!res.ok) return [];
     const products = await res.json();
     return products.map(simplify).slice(0, limit);
@@ -99,7 +101,7 @@ async function searchProducts(keyword, limit = 5) {
  * Get a single product by ID.
  */
 async function getProduct(productId) {
-  const res = await fetch(`${BASE_URL}/v1/products/${productId}`, { headers });
+  const res = await fetch(`${BASE_URL}/v1/products/${productId}`, { headers: getHeaders() });
   if (!res.ok) return null;
   return res.json();
 }
