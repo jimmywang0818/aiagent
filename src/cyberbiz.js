@@ -80,7 +80,7 @@ async function searchProducts(keyword, limit = 5) {
       p.title.toLowerCase().includes(kw) ||
       p.brief.toLowerCase().includes(kw) ||
       p.type.toLowerCase().includes(kw) ||
-      p.tags.some(t => t.toLowerCase().includes(kw))
+      p.tags.some(t => typeof t === 'string' && t.toLowerCase().includes(kw))
     );
   });
 
