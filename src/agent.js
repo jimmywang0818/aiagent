@@ -79,8 +79,9 @@ const tools = [
 const histories = new Map();
 
 function buildSystemPrompt() {
-  const rules = db.getEnabledRules();
-  const faqs = db.getEnabledFaqs();
+  const brandId = parseInt(process.env.BRAND_ID || '7');
+  const rules = db.getEnabledRules(brandId);
+  const faqs = db.getEnabledFaqs(brandId);
 
   let prompt = SYSTEM_PROMPT;
 
