@@ -7,7 +7,7 @@ const router = Router();
 
 function requireLogin(req, res, next) {
   if (req.session.loggedIn) return next();
-  res.redirect('/admin/login');
+  res.redirect('/tsa-ai-agent-manage/login');
 }
 
 function layout(title, body) {
@@ -52,11 +52,11 @@ function layout(title, body) {
 </head>
 <body>
 <div class="topbar">
-  <a href="/admin" style="font-size:16px;font-weight:600;">🌿 達摩本草 AI 管理</a>
+  <a href="/tsa-ai-agent-manage" style="font-size:16px;font-weight:600;">🌿 達摩本草 AI 管理</a>
   <nav>
-    <a href="/admin/rules">守則設定</a>
-    <a href="/admin/faqs">FAQ 知識庫</a>
-    <a href="/admin/logout">登出</a>
+    <a href="/tsa-ai-agent-manage/rules">守則設定</a>
+    <a href="/tsa-ai-agent-manage/faqs">FAQ 知識庫</a>
+    <a href="/tsa-ai-agent-manage/logout">登出</a>
   </nav>
 </div>
 <div class="container">${body}</div>
@@ -79,7 +79,7 @@ router.get('/login', (req, res) => {
 <body><div class="box">
 <h2>🌿 AI 管理後台</h2>
 ${req.query.err ? '<p class="err">密碼錯誤，請重試</p>' : ''}
-<form method="POST" action="/admin/login">
+<form method="POST" action="/tsa-ai-agent-manage/login">
   <input type="password" name="password" placeholder="請輸入管理密碼" autofocus>
   <button type="submit">登入</button>
 </form>
@@ -89,19 +89,19 @@ ${req.query.err ? '<p class="err">密碼錯誤，請重試</p>' : ''}
 router.post('/login', (req, res) => {
   if (req.body.password === process.env.ADMIN_PASSWORD) {
     req.session.loggedIn = true;
-    res.redirect('/admin/rules');
+    res.redirect('/tsa-ai-agent-manage/rules');
   } else {
-    res.redirect('/admin/login?err=1');
+    res.redirect('/tsa-ai-agent-manage/login?err=1');
   }
 });
 
 router.get('/logout', (req, res) => {
   req.session.destroy();
-  res.redirect('/admin/login');
+  res.redirect('/tsa-ai-agent-manage/login');
 });
 
 // Dashboard redirect
-router.get('/', requireLogin, (req, res) => res.redirect('/admin/rules'));
+router.get('/', requireLogin, (req, res) => res.redirect('/tsa-ai-agent-manage/rules'));
 
 // ── Rules ──────────────────────────────────────────
 router.get('/rules', requireLogin, (req, res) => {
@@ -114,8 +114,8 @@ router.get('/rules', requireLogin, (req, res) => {
         <td style="white-space:pre-wrap;max-width:400px;">${esc(r.content)}</td>
         <td><span class="badge ${r.enabled ? 'on' : 'off'}">${r.enabled ? '啟用' : '停用'}</span></td>
         <td>
-          <a href="/admin/rules/${r.id}/edit" class="btn btn-sm btn-primary">編輯</a>
-          <form method="POST" action="/admin/rules/${r.id}/delete" style="display:inline" onsubmit="return confirm('確定刪除？')">
+          <a href="/tsa-ai-agent-manage/rules/${r.id}/edit" class="btn btn-sm btn-primary">編輯</a>
+          <form method="POST" action="/tsa-ai-agent-manage/rules/${r.id}/delete" style="display:inline" onsubmit="return confirm('確定刪除？')">
             <button class="btn btn-sm btn-danger">刪除</button>
           </form>
         </td>
@@ -126,7 +126,7 @@ router.get('/rules', requireLogin, (req, res) => {
     <h2>AI 守則設定</h2>
     <div class="card">
       <h3 style="margin-bottom:16px;font-size:15px;">新增守則</h3>
-      <form method="POST" action="/admin/rules">
+      <form method="POST" action="/tsa-ai-agent-manage/rules">
         <div class="form-row">
           <div class="grow"><input type="text" name="title" placeholder="守則名稱（例：母親節活動）" required></div>
         </div>
@@ -145,16 +145,16 @@ router.get('/rules', requireLogin, (req, res) => {
 router.post('/rules', requireLogin, (req, res) => {
   const { title, content } = req.body;
   if (title && content) db.addRule(title.trim(), content.trim());
-  res.redirect('/admin/rules');
+  res.redirect('/tsa-ai-agent-manage/rules');
 });
 
 router.get('/rules/:id/edit', requireLogin, (req, res) => {
   const rule = db.getRules().find(r => r.id == req.params.id);
-  if (!rule) return res.redirect('/admin/rules');
+  if (!rule) return res.redirect('/tsa-ai-agent-manage/rules');
   res.send(layout('編輯守則', `
     <h2>編輯守則</h2>
     <div class="card">
-      <form method="POST" action="/admin/rules/${rule.id}/edit">
+      <form method="POST" action="/tsa-ai-agent-manage/rules/${rule.id}/edit">
         <div class="form-row">
           <div class="grow"><input type="text" name="title" value="${esc(rule.title)}" required></div>
         </div>
@@ -164,7 +164,7 @@ router.get('/rules/:id/edit', requireLogin, (req, res) => {
         </div>
         <div class="form-actions">
           <button class="btn btn-primary" type="submit">儲存</button>
-          <a href="/admin/rules" class="btn" style="background:#eee;color:#333;">取消</a>
+          <a href="/tsa-ai-agent-manage/rules" class="btn" style="background:#eee;color:#333;">取消</a>
         </div>
       </form>
     </div>`));
@@ -173,12 +173,12 @@ router.get('/rules/:id/edit', requireLogin, (req, res) => {
 router.post('/rules/:id/edit', requireLogin, (req, res) => {
   const { title, content, enabled } = req.body;
   db.updateRule(req.params.id, title.trim(), content.trim(), enabled ? 1 : 0);
-  res.redirect('/admin/rules');
+  res.redirect('/tsa-ai-agent-manage/rules');
 });
 
 router.post('/rules/:id/delete', requireLogin, (req, res) => {
   db.deleteRule(req.params.id);
-  res.redirect('/admin/rules');
+  res.redirect('/tsa-ai-agent-manage/rules');
 });
 
 // ── FAQs ───────────────────────────────────────────
@@ -192,8 +192,8 @@ router.get('/faqs', requireLogin, (req, res) => {
         <td style="white-space:pre-wrap;max-width:350px;">${esc(f.answer)}</td>
         <td><span class="badge ${f.enabled ? 'on' : 'off'}">${f.enabled ? '啟用' : '停用'}</span></td>
         <td>
-          <a href="/admin/faqs/${f.id}/edit" class="btn btn-sm btn-primary">編輯</a>
-          <form method="POST" action="/admin/faqs/${f.id}/delete" style="display:inline" onsubmit="return confirm('確定刪除？')">
+          <a href="/tsa-ai-agent-manage/faqs/${f.id}/edit" class="btn btn-sm btn-primary">編輯</a>
+          <form method="POST" action="/tsa-ai-agent-manage/faqs/${f.id}/delete" style="display:inline" onsubmit="return confirm('確定刪除？')">
             <button class="btn btn-sm btn-danger">刪除</button>
           </form>
         </td>
@@ -204,7 +204,7 @@ router.get('/faqs', requireLogin, (req, res) => {
     <h2>FAQ 知識庫</h2>
     <div class="card">
       <h3 style="margin-bottom:16px;font-size:15px;">新增 FAQ</h3>
-      <form method="POST" action="/admin/faqs">
+      <form method="POST" action="/tsa-ai-agent-manage/faqs">
         <div class="form-row">
           <div class="grow"><input type="text" name="question" placeholder="問題（例：請問有貨到付款嗎？）" required></div>
         </div>
@@ -223,16 +223,16 @@ router.get('/faqs', requireLogin, (req, res) => {
 router.post('/faqs', requireLogin, (req, res) => {
   const { question, answer } = req.body;
   if (question && answer) db.addFaq(question.trim(), answer.trim());
-  res.redirect('/admin/faqs');
+  res.redirect('/tsa-ai-agent-manage/faqs');
 });
 
 router.get('/faqs/:id/edit', requireLogin, (req, res) => {
   const faq = db.getFaqs().find(f => f.id == req.params.id);
-  if (!faq) return res.redirect('/admin/faqs');
+  if (!faq) return res.redirect('/tsa-ai-agent-manage/faqs');
   res.send(layout('編輯 FAQ', `
     <h2>編輯 FAQ</h2>
     <div class="card">
-      <form method="POST" action="/admin/faqs/${faq.id}/edit">
+      <form method="POST" action="/tsa-ai-agent-manage/faqs/${faq.id}/edit">
         <div class="form-row">
           <div class="grow"><input type="text" name="question" value="${esc(faq.question)}" required></div>
         </div>
@@ -242,7 +242,7 @@ router.get('/faqs/:id/edit', requireLogin, (req, res) => {
         </div>
         <div class="form-actions">
           <button class="btn btn-primary" type="submit">儲存</button>
-          <a href="/admin/faqs" class="btn" style="background:#eee;color:#333;">取消</a>
+          <a href="/tsa-ai-agent-manage/faqs" class="btn" style="background:#eee;color:#333;">取消</a>
         </div>
       </form>
     </div>`));
@@ -251,12 +251,12 @@ router.get('/faqs/:id/edit', requireLogin, (req, res) => {
 router.post('/faqs/:id/edit', requireLogin, (req, res) => {
   const { question, answer, enabled } = req.body;
   db.updateFaq(req.params.id, question.trim(), answer.trim(), enabled ? 1 : 0);
-  res.redirect('/admin/faqs');
+  res.redirect('/tsa-ai-agent-manage/faqs');
 });
 
 router.post('/faqs/:id/delete', requireLogin, (req, res) => {
   db.deleteFaq(req.params.id);
-  res.redirect('/admin/faqs');
+  res.redirect('/tsa-ai-agent-manage/faqs');
 });
 
 function esc(str) {

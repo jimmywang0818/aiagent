@@ -24,7 +24,7 @@ app.use(session({
   saveUninitialized: false,
   cookie: { maxAge: 8 * 60 * 60 * 1000 }, // 8 hours
 }));
-app.use('/admin', adminRouter);
+app.use('/tsa-ai-agent-manage', adminRouter);
 
 const PORT = process.env.PORT || 3000;
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/omnichat-webhook';
