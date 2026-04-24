@@ -248,7 +248,6 @@ function brandPage(req, res, activeTab) {
   const tabs = `<div class="tabs">
     <a href="${BASE}/brands/${brand.id}/rules" class="tab ${activeTab === 'rules' ? 'active' : ''}">守則設定 (${rules.length})</a>
     <a href="${BASE}/brands/${brand.id}/faqs"  class="tab ${activeTab === 'faqs'  ? 'active' : ''}">FAQ 知識庫 (${faqs.length})</a>
-    <a href="${BASE}/brands/${brand.id}/settings" class="tab ${activeTab === 'settings' ? 'active' : ''}">渠道設定</a>
   </div>`;
 
   if (activeTab === 'rules') {
@@ -319,35 +318,11 @@ function brandPage(req, res, activeTab) {
     return res.send(layout(`${brand.name} — FAQ`, body, brand));
   }
 
-  if (activeTab === 'settings') {
-    const body = `${header}${tabs}
-    <div class="card">
-      <h3>渠道設定</h3>
-      <form method="POST" action="${BASE}/brands/${brand.id}/settings">
-        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:16px">
-          <label style="display:flex;align-items:center;gap:10px;font-size:14px">
-            <input type="checkbox" name="has_omnichat" value="1" ${brand.has_omnichat ? 'checked' : ''} style="width:16px;height:16px">
-            <span>Omnichat（LINE / Webchat）</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:10px;font-size:14px">
-            <input type="checkbox" name="has_shopee" value="1" ${brand.has_shopee ? 'checked' : ''} style="width:16px;height:16px">
-            <span>蝦皮</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:10px;font-size:14px">
-            <input type="checkbox" name="enabled" value="1" ${brand.enabled ? 'checked' : ''} style="width:16px;height:16px">
-            <span>品牌啟用</span>
-          </label>
-        </div>
-        <div class="form-actions"><button class="btn btn-primary" type="submit">儲存設定</button></div>
-      </form>
-    </div>`;
-    return res.send(layout(`${brand.name} — 渠道設定`, body, brand));
-  }
 }
+
 
 router.get('/brands/:id/rules',    requireLogin, (req, res) => brandPage(req, res, 'rules'));
 router.get('/brands/:id/faqs',     requireLogin, (req, res) => brandPage(req, res, 'faqs'));
-router.get('/brands/:id/settings', requireLogin, (req, res) => brandPage(req, res, 'settings'));
 
 // Rules CRUD
 router.post('/brands/:id/rules', requireLogin, (req, res) => {
@@ -625,15 +600,5 @@ router.get('/logs/room/:roomId', requireLogin, (req, res) => {
   res.send(layout('對話內容', body, 'logs'));
 });
 
-// Settings
-router.post('/brands/:id/settings', requireLogin, (req, res) => {
-  const { has_omnichat, has_shopee, enabled } = req.body;
-  db.updateBrand(req.params.id, {
-    has_omnichat: has_omnichat ? 1 : 0,
-    has_shopee:   has_shopee   ? 1 : 0,
-    enabled:      enabled      ? 1 : 0,
-  });
-  res.redirect(`${BASE}/brands/${req.params.id}/settings`);
-});
 
 module.exports = router;
