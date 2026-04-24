@@ -14,6 +14,9 @@ const { sendMessage, transferToHuman } = require('./omnichat');
 const { getAIReply, clearHistory } = require('./agent');
 const { loadAllProducts } = require('./cyberbiz');
 const adminRouter = require('./admin');
+const db = require('./db');
+
+const BRAND_ID = parseInt(process.env.BRAND_ID || '7');
 
 const app = express();
 app.use(express.json());
@@ -80,18 +83,19 @@ app.post(WEBHOOK_PATH, async (req, res) => {
     }
 
     console.log(`[webhook] [${platform}] room=${roomId} user="${userText}"`);
+    db.logMessage({ brandId: BRAND_ID, roomId, platform, role: 'user', message: userText });
 
     try {
       const { reply, shouldTransfer } = await getAIReply({ roomId, userText });
 
       if (shouldTransfer) {
-        await sendMessage({
-          teamId, roomId, replyToken, platform,
-          text: '感謝您的耐心等候，我將為您轉接真人客服，請稍候...',
-        });
+        const transferMsg = '感謝您的耐心等候，我將為您轉接真人客服，請稍候...';
+        await sendMessage({ teamId, roomId, replyToken, platform, text: transferMsg });
+        db.logMessage({ brandId: BRAND_ID, roomId, platform, role: 'agent', message: transferMsg });
         await transferToHuman({ teamId, roomId });
       } else {
         await sendMessage({ teamId, roomId, replyToken, platform, text: reply });
+        db.logMessage({ brandId: BRAND_ID, roomId, platform, role: 'agent', message: reply });
       }
     } catch (err) {
       console.error(`[webhook] Error handling message for room ${roomId}:`, err.message);

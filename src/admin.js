@@ -35,7 +35,13 @@ function layout(title, body, activeBrand) {
     grouped[b.category].push(b);
   });
 
-  const sidebar = CATEGORY_ORDER.map(cat => {
+  const sidebar = [`
+    <div class="sb-group">
+      <a href="${BASE}/global" class="sb-brand${activeBrand === 'global' ? ' active' : ''}">🌐 全域設定</a>
+      <a href="${BASE}/logs"   class="sb-brand${activeBrand === 'logs'   ? ' active' : ''}">📋 對話紀錄</a>
+    </div>
+    <div style="border-top:1px solid #f0f0f0;margin:8px 0"></div>
+  `].concat(CATEGORY_ORDER.map(cat => {
     const list = grouped[cat];
     if (!list?.length) return '';
     const color = CATEGORY_COLOR[cat] || '#546e7a';
@@ -53,7 +59,7 @@ function layout(title, body, activeBrand) {
       <div class="sb-cat" style="color:${color}">${cat}</div>
       ${items}
     </div>`;
-  }).join('');
+  })).join('');
 
   return `<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -417,6 +423,206 @@ router.post('/brands/:id/faqs/:fid/edit', requireLogin, (req, res) => {
 router.post('/brands/:id/faqs/:fid/delete', requireLogin, (req, res) => {
   db.deleteFaq(req.params.fid);
   res.redirect(`${BASE}/brands/${req.params.id}/faqs`);
+});
+
+// ── Global rules / FAQs ───────────────────────────
+function globalPage(req, res, activeTab) {
+  const rules = db.getGlobalRules();
+  const faqs  = db.getGlobalFaqs();
+
+  const header = `<div class="brand-header">
+    <h2>🌐 全域設定</h2>
+    <span style="font-size:13px;color:#888;margin-left:8px">所有品牌共用，優先套用</span>
+  </div>`;
+
+  const tabs = `<div class="tabs">
+    <a href="${BASE}/global/rules" class="tab ${activeTab==='rules'?'active':''}">全域守則 (${rules.length})</a>
+    <a href="${BASE}/global/faqs"  class="tab ${activeTab==='faqs' ?'active':''}">全域 FAQ (${faqs.length})</a>
+  </div>`;
+
+  if (activeTab === 'rules') {
+    const rows = rules.length
+      ? rules.map(r => `<tr>
+          <td width="40">${r.id}</td>
+          <td><strong>${esc(r.title)}</strong></td>
+          <td style="white-space:pre-wrap">${esc(r.content)}</td>
+          <td width="70"><span class="badge ${r.enabled?'on':'off'}">${r.enabled?'啟用':'停用'}</span></td>
+          <td width="120">
+            <a href="${BASE}/global/rules/${r.id}/edit" class="btn btn-primary btn-sm">編輯</a>
+            <form method="POST" action="${BASE}/global/rules/${r.id}/delete" style="display:inline" onsubmit="return confirm('確定刪除？')">
+              <button class="btn btn-danger btn-sm">刪除</button>
+            </form>
+          </td>
+        </tr>`).join('')
+      : `<tr><td colspan="5" class="empty">尚無全域守則</td></tr>`;
+    const body = `${header}${tabs}
+    <div class="card"><h3>新增全域守則</h3>
+      <form method="POST" action="${BASE}/global/rules">
+        <div class="form-row"><div class="grow"><input type="text" name="title" placeholder="守則名稱" required></div></div>
+        <textarea name="content" placeholder="守則內容，對所有品牌生效" required></textarea>
+        <div class="form-actions"><button class="btn btn-success" type="submit">＋ 新增</button></div>
+      </form>
+    </div>
+    <div class="card"><table>
+      <thead><tr><th>ID</th><th>名稱</th><th>內容</th><th>狀態</th><th>操作</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+    return res.send(layout('全域守則', body, 'global'));
+  }
+
+  if (activeTab === 'faqs') {
+    const rows = faqs.length
+      ? faqs.map(f => `<tr>
+          <td width="40">${f.id}</td>
+          <td style="max-width:220px">${esc(f.question)}</td>
+          <td style="white-space:pre-wrap">${esc(f.answer)}</td>
+          <td width="70"><span class="badge ${f.enabled?'on':'off'}">${f.enabled?'啟用':'停用'}</span></td>
+          <td width="120">
+            <a href="${BASE}/global/faqs/${f.id}/edit" class="btn btn-primary btn-sm">編輯</a>
+            <form method="POST" action="${BASE}/global/faqs/${f.id}/delete" style="display:inline" onsubmit="return confirm('確定刪除？')">
+              <button class="btn btn-danger btn-sm">刪除</button>
+            </form>
+          </td>
+        </tr>`).join('')
+      : `<tr><td colspan="5" class="empty">尚無全域 FAQ</td></tr>`;
+    const body = `${header}${tabs}
+    <div class="card"><h3>新增全域 FAQ</h3>
+      <form method="POST" action="${BASE}/global/faqs">
+        <div class="form-row"><div class="grow"><input type="text" name="question" placeholder="問題" required></div></div>
+        <textarea name="answer" placeholder="回覆內容，對所有品牌生效" required></textarea>
+        <div class="form-actions"><button class="btn btn-success" type="submit">＋ 新增</button></div>
+      </form>
+    </div>
+    <div class="card"><table>
+      <thead><tr><th>ID</th><th>問題</th><th>回覆</th><th>狀態</th><th>操作</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+    return res.send(layout('全域 FAQ', body, 'global'));
+  }
+}
+
+router.get('/global',       requireLogin, (req, res) => res.redirect(`${BASE}/global/rules`));
+router.get('/global/rules', requireLogin, (req, res) => globalPage(req, res, 'rules'));
+router.get('/global/faqs',  requireLogin, (req, res) => globalPage(req, res, 'faqs'));
+
+router.post('/global/rules', requireLogin, (req, res) => {
+  const { title, content } = req.body;
+  if (title && content) db.addRule(null, title.trim(), content.trim());
+  res.redirect(`${BASE}/global/rules`);
+});
+router.get('/global/rules/:id/edit', requireLogin, (req, res) => {
+  const rule = db.getGlobalRules().find(r => r.id == req.params.id);
+  if (!rule) return res.redirect(`${BASE}/global/rules`);
+  const body = `<div class="brand-header"><h2>🌐 編輯全域守則</h2></div>
+  <div class="card">
+    <form method="POST" action="${BASE}/global/rules/${rule.id}/edit">
+      <div class="form-row"><div class="grow"><input type="text" name="title" value="${esc(rule.title)}" required></div></div>
+      <textarea name="content" required>${esc(rule.content)}</textarea>
+      <div style="margin-top:12px"><label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" name="enabled" value="1" ${rule.enabled?'checked':''}> 啟用</label></div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">儲存</button>
+        <a href="${BASE}/global/rules" class="btn btn-ghost">取消</a>
+      </div>
+    </form>
+  </div>`;
+  res.send(layout('編輯全域守則', body, 'global'));
+});
+router.post('/global/rules/:id/edit', requireLogin, (req, res) => {
+  const { title, content, enabled } = req.body;
+  db.updateRule(req.params.id, title.trim(), content.trim(), enabled ? 1 : 0);
+  res.redirect(`${BASE}/global/rules`);
+});
+router.post('/global/rules/:id/delete', requireLogin, (req, res) => {
+  db.deleteRule(req.params.id);
+  res.redirect(`${BASE}/global/rules`);
+});
+
+router.post('/global/faqs', requireLogin, (req, res) => {
+  const { question, answer } = req.body;
+  if (question && answer) db.addFaq(null, question.trim(), answer.trim());
+  res.redirect(`${BASE}/global/faqs`);
+});
+router.get('/global/faqs/:id/edit', requireLogin, (req, res) => {
+  const faq = db.getGlobalFaqs().find(f => f.id == req.params.id);
+  if (!faq) return res.redirect(`${BASE}/global/faqs`);
+  const body = `<div class="brand-header"><h2>🌐 編輯全域 FAQ</h2></div>
+  <div class="card">
+    <form method="POST" action="${BASE}/global/faqs/${faq.id}/edit">
+      <div class="form-row"><div class="grow"><input type="text" name="question" value="${esc(faq.question)}" required></div></div>
+      <textarea name="answer" required>${esc(faq.answer)}</textarea>
+      <div style="margin-top:12px"><label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" name="enabled" value="1" ${faq.enabled?'checked':''}> 啟用</label></div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">儲存</button>
+        <a href="${BASE}/global/faqs" class="btn btn-ghost">取消</a>
+      </div>
+    </form>
+  </div>`;
+  res.send(layout('編輯全域 FAQ', body, 'global'));
+});
+router.post('/global/faqs/:id/edit', requireLogin, (req, res) => {
+  const { question, answer, enabled } = req.body;
+  db.updateFaq(req.params.id, question.trim(), answer.trim(), enabled ? 1 : 0);
+  res.redirect(`${BASE}/global/faqs`);
+});
+router.post('/global/faqs/:id/delete', requireLogin, (req, res) => {
+  db.deleteFaq(req.params.id);
+  res.redirect(`${BASE}/global/faqs`);
+});
+
+// ── Conversation Logs ─────────────────────────────
+router.get('/logs', requireLogin, (req, res) => {
+  const brandId = req.query.brand ? parseInt(req.query.brand) : null;
+  const brands  = db.getBrands();
+  const rooms   = db.getLogRooms(brandId);
+
+  const brandFilter = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+    <span style="font-size:13px;color:#666">篩選品牌：</span>
+    <a href="${BASE}/logs" class="btn btn-sm ${!brandId?'btn-primary':'btn-ghost'}">全部</a>
+    ${brands.map(b => `<a href="${BASE}/logs?brand=${b.id}" class="btn btn-sm ${brandId===b.id?'btn-primary':'btn-ghost'}">${esc(b.name)}</a>`).join('')}
+  </div>`;
+
+  const rows = rooms.length
+    ? rooms.map(r => `<tr>
+        <td><a href="${BASE}/logs/room/${encodeURIComponent(r.room_id)}" style="color:#1a237e;text-decoration:none;font-family:monospace;font-size:12px">${esc(r.room_id.slice(-12))}</a></td>
+        <td>${esc(r.brand_name || '—')}</td>
+        <td>${esc(r.platform || '—')}</td>
+        <td>${r.msg_count}</td>
+        <td style="font-size:12px;color:#888">${esc(r.last_msg)}</td>
+        <td><a href="${BASE}/logs/room/${encodeURIComponent(r.room_id)}" class="btn btn-primary btn-sm">查看</a></td>
+      </tr>`).join('')
+    : `<tr><td colspan="6" class="empty">尚無對話紀錄</td></tr>`;
+
+  const body = `<h2>📋 對話紀錄</h2>
+  <p style="color:#888;font-size:13px;margin-bottom:20px">顯示最近 50 個對話</p>
+  ${brandFilter}
+  <div class="card"><table>
+    <thead><tr><th>Room ID</th><th>品牌</th><th>平台</th><th>訊息數</th><th>最後時間</th><th>操作</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+  res.send(layout('對話紀錄', body, 'logs'));
+});
+
+router.get('/logs/room/:roomId', requireLogin, (req, res) => {
+  const roomId = decodeURIComponent(req.params.roomId);
+  const msgs   = db.getRoomMessages(roomId);
+
+  const bubbles = msgs.map(m => {
+    const isUser = m.role === 'user';
+    const bg     = isUser ? '#e3f2fd' : '#e8f5e9';
+    const align  = isUser ? 'flex-start' : 'flex-end';
+    const label  = isUser ? '顧客' : 'AI';
+    return `<div style="display:flex;flex-direction:column;align-items:${align};margin-bottom:12px">
+      <span style="font-size:11px;color:#999;margin-bottom:3px">${label} · ${esc(m.created_at)}</span>
+      <div style="background:${bg};padding:10px 14px;border-radius:10px;max-width:75%;font-size:13px;line-height:1.6;white-space:pre-wrap">${esc(m.message)}</div>
+    </div>`;
+  }).join('') || '<p class="empty">此對話無訊息紀錄</p>';
+
+  const body = `<div class="brand-header">
+    <a href="${BASE}/logs" style="color:#1a237e;text-decoration:none;font-size:13px">← 返回列表</a>
+    <h2 style="font-size:15px;margin-left:12px;font-family:monospace">${esc(roomId)}</h2>
+  </div>
+  <div class="card" style="max-width:700px">${bubbles}</div>`;
+  res.send(layout('對話內容', body, 'logs'));
 });
 
 // Settings
