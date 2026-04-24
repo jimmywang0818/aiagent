@@ -3,12 +3,28 @@
 require('dotenv').config();
 
 const express = require('express');
+const session = require('express-session');
+const fs = require('fs');
+const path = require('path');
+
+// Ensure data directory exists for SQLite
+const dataDir = path.join(__dirname, '..', 'data');
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
 const { sendMessage, transferToHuman } = require('./omnichat');
 const { getAIReply, clearHistory } = require('./agent');
 const { loadAllProducts } = require('./cyberbiz');
+const adminRouter = require('./admin');
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'fallback-secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 8 * 60 * 60 * 1000 }, // 8 hours
+}));
+app.use('/admin', adminRouter);
 
 const PORT = process.env.PORT || 3000;
 const WEBHOOK_PATH = process.env.WEBHOOK_PATH || '/omnichat-webhook';

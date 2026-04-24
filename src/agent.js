@@ -2,6 +2,7 @@
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { searchProducts } = require('./cyberbiz');
+const db = require('./db');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -77,6 +78,25 @@ const tools = [
 // Conversation history per room: Map<roomId, Message[]>
 const histories = new Map();
 
+function buildSystemPrompt() {
+  const rules = db.getEnabledRules();
+  const faqs = db.getEnabledFaqs();
+
+  let prompt = SYSTEM_PROMPT;
+
+  if (rules.length) {
+    prompt += '\n\n## 目前生效的特別守則\n';
+    prompt += rules.map(r => `- ${r.content}`).join('\n');
+  }
+
+  if (faqs.length) {
+    prompt += '\n\n## 常見問答知識庫（優先依此回答）\n';
+    prompt += faqs.map(f => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n');
+  }
+
+  return prompt;
+}
+
 /**
  * Process a customer message and return { reply, shouldTransfer }.
  */
@@ -88,7 +108,7 @@ async function getAIReply({ roomId, userText }) {
 
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.0-flash',
-    systemInstruction: SYSTEM_PROMPT,
+    systemInstruction: buildSystemPrompt(),
     tools,
   });
 
