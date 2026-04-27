@@ -41,7 +41,7 @@ function simplify(p) {
  */
 async function loadAllProducts() {
   const all = [];
-  const PER_PAGE = 100;
+  const PER_PAGE = 20; // Cyberbiz API max per_page
   let page = 1;
 
   while (true) {
@@ -53,7 +53,8 @@ async function loadAllProducts() {
     const batch = await res.json();
     if (!Array.isArray(batch) || !batch.length) break;
     all.push(...batch.filter(p => p.published));
-    if (batch.length < PER_PAGE) break; // last page
+    console.log(`[cyberbiz] Loaded page ${page}: ${batch.length} items (published: ${batch.filter(p=>p.published).length})`);
+    if (batch.length < PER_PAGE) break; // last page reached
     page++;
   }
 
