@@ -25,6 +25,7 @@ function simplify(p) {
   return {
     id: p.id,
     title: p.title || '',
+    handle: p.handle || '',
     url: p.product_url?.startsWith('//') ? `https:${p.product_url}` : (p.product_url || ''),
     price: variant?.price ?? p.price,
     originalPrice: variant?.compare_at_price || null,
@@ -59,6 +60,8 @@ async function loadAllProducts() {
   productCache = all.map(simplify);
   cacheLoadedAt = Date.now();
   console.log(`[cyberbiz] Product cache loaded: ${productCache.length} products`);
+  // Debug: print titles to help diagnose search issues
+  productCache.slice(0, 5).forEach(p => console.log(`[cyberbiz]   sample: "${p.title}" handle="${p.handle}"`));
 }
 
 async function ensureCache() {
@@ -80,6 +83,7 @@ async function searchProducts(keyword, limit = 5) {
     const tagStr = p.tags.map(t => typeof t === 'string' ? t : (t?.name || '')).join(' ').toLowerCase();
     return (
       p.title.toLowerCase().includes(kw) ||
+      p.handle.toLowerCase().includes(kw) ||
       p.brief.toLowerCase().includes(kw) ||
       p.type.toLowerCase().includes(kw) ||
       tagStr.includes(kw)

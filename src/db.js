@@ -281,7 +281,8 @@ function toggleReviewTemplate(id, active) {
 
 // ── Conversation Logs ─────────────────────────────
 function logMessage({ brandId, roomId, platform, role, message }) {
-  return db.prepare('INSERT INTO conversation_logs (brand_id,room_id,platform,role,message) VALUES (?,?,?,?,?)')
+  // Store in Taipei time (UTC+8)
+  return db.prepare("INSERT INTO conversation_logs (brand_id,room_id,platform,role,message,created_at) VALUES (?,?,?,?,?,datetime('now','+8 hours'))")
     .run(brandId ?? null, roomId, platform, role, message);
 }
 function getLogs({ brandId, limit = 100, offset = 0 } = {}) {
@@ -290,8 +291,10 @@ function getLogs({ brandId, limit = 100, offset = 0 } = {}) {
   }
   return db.prepare('SELECT l.*,b.name as brand_name FROM conversation_logs l LEFT JOIN brands b ON l.brand_id=b.id ORDER BY l.id DESC LIMIT ? OFFSET ?').all(limit, offset);
 }
-function getLogRooms({ brandId, platform, search } = {}) {
+function getLogRooms({ brandId, platform, search, includeSandbox = false } = {}) {
   const conds = [], params = [];
+  // Exclude sandbox test conversations by default
+  if (!includeSandbox) { conds.push("l.room_id NOT LIKE 'sandbox-%'"); }
   if (brandId)  { conds.push('l.brand_id=?');       params.push(brandId); }
   if (platform) { conds.push('l.platform=?');        params.push(platform); }
   if (search)   { conds.push('l.room_id LIKE ?');    params.push(`%${search}%`); }
