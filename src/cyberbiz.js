@@ -40,18 +40,19 @@ function simplify(p) {
  */
 async function loadAllProducts() {
   const all = [];
+  const PER_PAGE = 100;
   let page = 1;
 
   while (true) {
-    const res = await fetch(`${BASE_URL}/v1/products?page=${page}&per_page=20`, { headers: getHeaders() });
+    const res = await fetch(`${BASE_URL}/v1/products?page=${page}&per_page=${PER_PAGE}`, { headers: getHeaders() });
     if (!res.ok) {
       console.error(`[cyberbiz] loadAllProducts failed on page ${page}: ${res.status}`);
       break;
     }
     const batch = await res.json();
-    if (!batch.length) break;
+    if (!Array.isArray(batch) || !batch.length) break;
     all.push(...batch.filter(p => p.published));
-    if (batch.length < 100) break;
+    if (batch.length < PER_PAGE) break; // last page
     page++;
   }
 

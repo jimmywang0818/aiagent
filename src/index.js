@@ -73,11 +73,11 @@ app.post(WEBHOOK_PATH, async (req, res) => {
     // Ignore empty messages
     if (!userText) continue;
 
-    // Auto-reply for messages that are only a URL
+    // Auto-reply for messages that are only a URL (or contain only a URL)
     if (/^https?:\/\/\S+$/i.test(userText)) {
       await sendMessage({
         teamId, roomId, replyToken, platform,
-        text: '感謝您的訊息！由於 LINE 聊天室內無法直接開啟連結，建議您複製網址後在瀏覽器開啟，或直接告訴我您的問題，我很樂意為您協助 😊',
+        text: '您好！感謝您的訊息 😊 很抱歉，為了保護雙方的安全，我們的客服系統無法開啟外部連結。\n\n如果您有任何商品或訂單上的問題，歡迎直接用文字告訴我，我會很樂意為您服務！',
       });
       console.log(`[webhook] Auto-replied to URL message: "${userText.slice(0, 50)}"`);
       continue;
