@@ -19,20 +19,23 @@ db.exec(`
     enabled      INTEGER NOT NULL DEFAULT 1
   );
 
-  -- brand_id NULL = global rule (applies to all brands)
+  -- Scope: brand_id=NULL & category=NULL → global
+  --        brand_id=NULL & category='保健品' → category-level
+  --        brand_id=X → brand-specific
   CREATE TABLE IF NOT EXISTS rules (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     brand_id   INTEGER REFERENCES brands(id),
+    category   TEXT,
     title      TEXT NOT NULL,
     content    TEXT NOT NULL,
     enabled    INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
   );
 
-  -- brand_id NULL = global FAQ (applies to all brands)
   CREATE TABLE IF NOT EXISTS faqs (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     brand_id   INTEGER REFERENCES brands(id),
+    category   TEXT,
     question   TEXT NOT NULL,
     answer     TEXT NOT NULL,
     enabled    INTEGER NOT NULL DEFAULT 1,
@@ -110,15 +113,27 @@ function updateBrand(id, d) {
 }
 
 // ── Rules ─────────────────────────────────────────
-function getRules(brandId)         { return db.prepare('SELECT * FROM rules WHERE brand_id=? ORDER BY id').all(brandId ?? null); }
-function getGlobalRules()          { return db.prepare('SELECT * FROM rules WHERE brand_id IS NULL ORDER BY id').all(); }
+function getRules(brandId)           { return db.prepare('SELECT * FROM rules WHERE brand_id=? AND category IS NULL ORDER BY id').all(brandId); }
+function getGlobalRules()            { return db.prepare('SELECT * FROM rules WHERE brand_id IS NULL AND category IS NULL ORDER BY id').all(); }
+function getCategoryRules(category)  { return db.prepare('SELECT * FROM rules WHERE brand_id IS NULL AND category=? ORDER BY id').all(category); }
 function getEnabledRules(brandId)  {
-  const global = db.prepare('SELECT content FROM rules WHERE brand_id IS NULL AND enabled=1').all();
-  const brand  = db.prepare('SELECT content FROM rules WHERE brand_id=? AND enabled=1').all(brandId);
-  return [...global, ...brand];
+  const brand   = db.prepare('SELECT * FROM brands WHERE id=?').get(brandId);
+  const global  = db.prepare('SELECT content FROM rules WHERE brand_id IS NULL AND category IS NULL AND enabled=1').all();
+  const catRule = brand ? db.prepare('SELECT content FROM rules WHERE brand_id IS NULL AND category=? AND enabled=1').all(brand.category) : [];
+  const brandR  = db.prepare('SELECT content FROM rules WHERE brand_id=? AND enabled=1').all(brandId);
+  return [...global, ...catRule, ...brandR];
 }
-function addRule(brandId, title, content) {
-  return db.prepare('INSERT INTO rules (brand_id,title,content) VALUES (?,?,?)').run(brandId ?? null, title, content);
+function addRule(brandId, title, content, category) {
+  return db.prepare('INSERT INTO rules (brand_id,category,title,content) VALUES (?,?,?,?)').run(brandId ?? null, category ?? null, title, content);
+}
+function upsertRule(brandId, category, title, content) {
+  const existing = db.prepare('SELECT id FROM rules WHERE brand_id IS ? AND category IS ? AND title=?').get(brandId ?? null, category ?? null, title);
+  if (existing) {
+    db.prepare('UPDATE rules SET content=?,enabled=1 WHERE id=?').run(content, existing.id);
+    return { action: 'updated', id: existing.id };
+  }
+  const r = db.prepare('INSERT INTO rules (brand_id,category,title,content) VALUES (?,?,?,?)').run(brandId ?? null, category ?? null, title, content);
+  return { action: 'inserted', id: r.lastInsertRowid };
 }
 function updateRule(id, title, content, enabled) {
   return db.prepare('UPDATE rules SET title=?,content=?,enabled=? WHERE id=?').run(title, content, enabled, id);
@@ -126,15 +141,27 @@ function updateRule(id, title, content, enabled) {
 function deleteRule(id) { return db.prepare('DELETE FROM rules WHERE id=?').run(id); }
 
 // ── FAQs ──────────────────────────────────────────
-function getFaqs(brandId)        { return db.prepare('SELECT * FROM faqs WHERE brand_id=? ORDER BY id').all(brandId ?? null); }
-function getGlobalFaqs()         { return db.prepare('SELECT * FROM faqs WHERE brand_id IS NULL ORDER BY id').all(); }
-function getEnabledFaqs(brandId) {
-  const global = db.prepare('SELECT question,answer FROM faqs WHERE brand_id IS NULL AND enabled=1').all();
-  const brand  = db.prepare('SELECT question,answer FROM faqs WHERE brand_id=? AND enabled=1').all(brandId);
-  return [...global, ...brand];
+function getFaqs(brandId)           { return db.prepare('SELECT * FROM faqs WHERE brand_id=? AND category IS NULL ORDER BY id').all(brandId); }
+function getGlobalFaqs()            { return db.prepare('SELECT * FROM faqs WHERE brand_id IS NULL AND category IS NULL ORDER BY id').all(); }
+function getCategoryFaqs(category)  { return db.prepare('SELECT * FROM faqs WHERE brand_id IS NULL AND category=? ORDER BY id').all(category); }
+function getEnabledFaqs(brandId)  {
+  const brand   = db.prepare('SELECT * FROM brands WHERE id=?').get(brandId);
+  const global  = db.prepare('SELECT question,answer FROM faqs WHERE brand_id IS NULL AND category IS NULL AND enabled=1').all();
+  const catFaq  = brand ? db.prepare('SELECT question,answer FROM faqs WHERE brand_id IS NULL AND category=? AND enabled=1').all(brand.category) : [];
+  const brandF  = db.prepare('SELECT question,answer FROM faqs WHERE brand_id=? AND enabled=1').all(brandId);
+  return [...global, ...catFaq, ...brandF];
 }
-function addFaq(brandId, question, answer) {
-  return db.prepare('INSERT INTO faqs (brand_id,question,answer) VALUES (?,?,?)').run(brandId ?? null, question, answer);
+function addFaq(brandId, question, answer, category) {
+  return db.prepare('INSERT INTO faqs (brand_id,category,question,answer) VALUES (?,?,?,?)').run(brandId ?? null, category ?? null, question, answer);
+}
+function upsertFaq(brandId, category, question, answer) {
+  const existing = db.prepare('SELECT id FROM faqs WHERE brand_id IS ? AND category IS ? AND question=?').get(brandId ?? null, category ?? null, question);
+  if (existing) {
+    db.prepare('UPDATE faqs SET answer=?,enabled=1 WHERE id=?').run(answer, existing.id);
+    return { action: 'updated', id: existing.id };
+  }
+  const r = db.prepare('INSERT INTO faqs (brand_id,category,question,answer) VALUES (?,?,?,?)').run(brandId ?? null, category ?? null, question, answer);
+  return { action: 'inserted', id: r.lastInsertRowid };
 }
 function updateFaq(id, question, answer, enabled) {
   return db.prepare('UPDATE faqs SET question=?,answer=?,enabled=? WHERE id=?').run(question, answer, enabled, id);
@@ -164,7 +191,7 @@ function getRoomMessages(roomId) {
 
 module.exports = {
   getBrands, getBrandById, updateBrand,
-  getRules, getGlobalRules, getEnabledRules, addRule, updateRule, deleteRule,
-  getFaqs, getGlobalFaqs, getEnabledFaqs, addFaq, updateFaq, deleteFaq,
+  getRules, getGlobalRules, getCategoryRules, getEnabledRules, addRule, upsertRule, updateRule, deleteRule,
+  getFaqs, getGlobalFaqs, getCategoryFaqs, getEnabledFaqs, addFaq, upsertFaq, updateFaq, deleteFaq,
   logMessage, getLogs, getLogRooms, getRoomMessages,
 };
