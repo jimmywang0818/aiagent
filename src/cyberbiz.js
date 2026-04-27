@@ -143,27 +143,73 @@ function simplifyOrder(o) {
 /**
  * Look up order(s) by order number, email, or customer name.
  * Returns array of simplified orders, or null on failure.
+ *
+ * Flow:
+ *  orderNumber → GET /v1/orders/get_order_id?order_numbers=N → GET /v1/orders/{id}
+ *  email       → GET /v1/customers/get_customer_id?customer_emails=X → GET /v1/customers/{id}/orders
  */
 async function getOrderStatus({ orderNumber, email, name }) {
-  const queries = [];
-  if (orderNumber) queries.push(`query=${encodeURIComponent(orderNumber)}`);
-  else if (email)  queries.push(`email=${encodeURIComponent(email)}`);
-  else if (name)   queries.push(`query=${encodeURIComponent(name)}`);
-  else return null;
-
-  const url = `${BASE_URL}/v1/orders?${queries.join('&')}&limit=5`;
-  console.log(`[cyberbiz] getOrderStatus: ${url}`);
-
   try {
-    const res = await fetch(url, { headers: getHeaders() });
-    if (!res.ok) {
-      console.error(`[cyberbiz] getOrderStatus failed: ${res.status}`);
-      return null;
+    // ── Lookup by order number ────────────────────
+    if (orderNumber) {
+      // Strip non-numeric prefix (e.g. "DA", "#") — API expects numeric order number
+      const clean = String(orderNumber).replace(/^[^0-9]+/, '').trim();
+      console.log(`[cyberbiz] get_order_id: order_numbers=${clean}`);
+
+      const idRes = await fetch(
+        `${BASE_URL}/v1/orders/get_order_id?order_numbers=${encodeURIComponent(clean)}`,
+        { headers: getHeaders() }
+      );
+      if (!idRes.ok) {
+        console.error(`[cyberbiz] get_order_id failed: ${idRes.status}`);
+        return null;
+      }
+      const idData = await idRes.json();
+      if (!Array.isArray(idData) || !idData.length) return [];
+
+      // Fetch full order for each matched ID (max 3)
+      const orders = await Promise.all(
+        idData.slice(0, 3).map(async ({ order_id }) => {
+          const res = await fetch(`${BASE_URL}/v1/orders/${order_id}`, { headers: getHeaders() });
+          if (!res.ok) return null;
+          const o = await res.json();
+          return simplifyOrder(o);
+        })
+      );
+      return orders.filter(Boolean);
     }
-    const data = await res.json();
-    const orders = Array.isArray(data) ? data : (data.orders || (data.id ? [data] : []));
-    if (!orders.length) return [];
-    return orders.slice(0, 3).map(simplifyOrder);
+
+    // ── Lookup by email ───────────────────────────
+    if (email) {
+      console.log(`[cyberbiz] get_customer_id: email=${email}`);
+      const cidRes = await fetch(
+        `${BASE_URL}/v1/customers/get_customer_id?customer_emails=${encodeURIComponent(email)}`,
+        { headers: getHeaders() }
+      );
+      if (!cidRes.ok) {
+        console.error(`[cyberbiz] get_customer_id failed: ${cidRes.status}`);
+        return null;
+      }
+      const cidData = await cidRes.json();
+      if (!Array.isArray(cidData) || !cidData.length) return [];
+
+      const customerId = cidData[0].customer_id;
+      const ordRes = await fetch(
+        `${BASE_URL}/v1/customers/${customerId}/orders?per_page=3`,
+        { headers: getHeaders() }
+      );
+      if (!ordRes.ok) {
+        console.error(`[cyberbiz] customer orders failed: ${ordRes.status}`);
+        return null;
+      }
+      const orders = await ordRes.json();
+      const list = Array.isArray(orders) ? orders : (orders.orders || []);
+      return list.slice(0, 3).map(simplifyOrder);
+    }
+
+    // Name search not supported by API — return null so AI asks for order# or email
+    return null;
+
   } catch (err) {
     console.error(`[cyberbiz] getOrderStatus error: ${err.message}`);
     return null;
