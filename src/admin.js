@@ -4,6 +4,7 @@ const { Router } = require('express');
 const multer = require('multer');
 const db = require('./db');
 const { getAIReply, clearHistory } = require('./agent');
+const { getProductCache, loadAllProducts } = require('./cyberbiz');
 
 const router = Router();
 const BASE = '/tsa-ai-agent-manage';
@@ -155,7 +156,8 @@ textarea{min-height:72px;resize:vertical}
       <a href="${BASE}/global"   class="sb-item${activeKey==='global'  ?' active':''}">🌐 全域設定</a>
       <a href="${BASE}/sandbox"  class="sb-item${activeKey==='sandbox' ?' active':''}">🧪 沙盒測試</a>
       <a href="${BASE}/logs"     class="sb-item${activeKey==='logs'    ?' active':''}">📋 對話紀錄</a>
-      <a href="${BASE}/reviews"  class="sb-item${activeKey==='reviews' ?' active':''}">🏷 評論模板</a>
+      <a href="${BASE}/reviews"   class="sb-item${activeKey==='reviews'  ?' active':''}">🏷 評論模板</a>
+      <a href="${BASE}/products"  class="sb-item${activeKey==='products' ?' active':''}">🛍 商品快取</a>
     </div>
     <hr class="sb-divider">
     ${catLinks}
@@ -930,6 +932,54 @@ router.get('/logs/room/:roomId', requireLogin, (req, res) => {
   </div>
   <div class="card" style="max-width:680px">${bubbles}</div>`;
   res.send(layout('對話內容', body, 'logs'));
+});
+
+// ── Product Cache Debug ───────────────────────────
+router.get('/products', requireLogin, (req, res) => {
+  const cache = getProductCache();
+  const q = (req.query.q || '').toLowerCase().trim();
+  const filtered = q
+    ? cache.filter(p => {
+        const tagStr = p.tags.map(t => typeof t === 'string' ? t : (t?.name || '')).join(' ').toLowerCase();
+        return p.title.toLowerCase().includes(q) || p.brief.toLowerCase().includes(q) ||
+               p.type.toLowerCase().includes(q) || tagStr.includes(q);
+      })
+    : cache;
+
+  const rows = filtered.slice(0, 100).map(p => `<tr>
+    <td style="font-size:11px;color:#888">${p.id}</td>
+    <td><strong>${esc(p.title)}</strong></td>
+    <td style="font-size:12px;color:#888;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.brief.slice(0,60))}</td>
+    <td style="font-size:12px">${esc(p.type)}</td>
+    <td style="font-size:11px;color:#888">${esc(Array.isArray(p.tags) ? p.tags.map(t=>typeof t==='string'?t:(t?.name||'')).join(', ') : '')}</td>
+    <td><span class="badge ${p.inStock?'on':'off'}">${p.inStock?'有貨':'缺貨'}</span></td>
+    <td style="font-size:12px">${p.price ? '$'+p.price : '—'}</td>
+  </tr>`).join('') || `<tr><td colspan="7" class="empty">無結果</td></tr>`;
+
+  const body = `<div class="page-header">
+    <h2>🛍 商品快取 debug</h2>
+    <span style="font-size:12px;color:#999">快取共 ${cache.length} 個商品（顯示前 100 筆）</span>
+    <form method="GET" action="${BASE}/products" style="display:flex;gap:8px;align-items:center;margin-left:auto">
+      <input type="text" name="q" value="${esc(req.query.q||'')}" placeholder="搜尋標題/簡介/類型/標籤…" style="width:220px;margin:0">
+      <button class="btn btn-ghost btn-sm" type="submit">🔍</button>
+      ${q ? `<a href="${BASE}/products" class="btn btn-ghost btn-sm">✕</a>` : ''}
+    </form>
+    <form method="POST" action="${BASE}/products/reload" style="margin-left:8px">
+      <button class="btn btn-primary btn-sm" type="submit">🔄 重新載入快取</button>
+    </form>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table>
+      <thead><tr><th>ID</th><th>標題</th><th>簡介</th><th>類型</th><th>Tags</th><th>庫存</th><th>售價</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+  res.send(layout('商品快取', body, 'products'));
+});
+
+router.post('/products/reload', requireLogin, async (req, res) => {
+  await loadAllProducts();
+  res.redirect(`${BASE}/products`);
 });
 
 // ── Review Templates ──────────────────────────────

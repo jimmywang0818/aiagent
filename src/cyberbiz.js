@@ -77,11 +77,12 @@ async function searchProducts(keyword, limit = 5) {
   const kw = keyword.toLowerCase();
 
   const results = productCache.filter(p => {
+    const tagStr = p.tags.map(t => typeof t === 'string' ? t : (t?.name || '')).join(' ').toLowerCase();
     return (
       p.title.toLowerCase().includes(kw) ||
       p.brief.toLowerCase().includes(kw) ||
       p.type.toLowerCase().includes(kw) ||
-      p.tags.some(t => typeof t === 'string' && t.toLowerCase().includes(kw))
+      tagStr.includes(kw)
     );
   });
 
@@ -217,4 +218,6 @@ async function getOrderStatus({ orderNumber, email, name }) {
   }
 }
 
-module.exports = { searchProducts, getProduct, getOrderStatus, loadAllProducts };
+function getProductCache() { return productCache; }
+
+module.exports = { searchProducts, getProduct, getOrderStatus, loadAllProducts, getProductCache };
