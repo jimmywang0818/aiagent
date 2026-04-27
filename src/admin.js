@@ -155,6 +155,7 @@ textarea{min-height:72px;resize:vertical}
       <a href="${BASE}/global"   class="sb-item${activeKey==='global'  ?' active':''}">🌐 全域設定</a>
       <a href="${BASE}/sandbox"  class="sb-item${activeKey==='sandbox' ?' active':''}">🧪 沙盒測試</a>
       <a href="${BASE}/logs"     class="sb-item${activeKey==='logs'    ?' active':''}">📋 對話紀錄</a>
+      <a href="${BASE}/reviews"  class="sb-item${activeKey==='reviews' ?' active':''}">🏷 評論模板</a>
     </div>
     <hr class="sb-divider">
     ${catLinks}
@@ -695,9 +696,15 @@ router.post('/brands/:id/faqs/:fid/delete', requireLogin, (req, res) => {
 
 // ── Sandbox ───────────────────────────────────────
 router.get('/sandbox', requireLogin, (req, res) => {
-  const brandId = parseInt(process.env.BRAND_ID || '7');
-  const brand   = db.getBrandById(brandId);
-  const roomId  = `sandbox-${req.session.id}`;
+  const allBrands = db.getBrands().filter(b => b.enabled);
+  const defaultBrandId = parseInt(process.env.BRAND_ID || '7');
+  const brandId = req.query.brand ? parseInt(req.query.brand) : defaultBrandId;
+  const brand   = db.getBrandById(brandId) || db.getBrandById(defaultBrandId);
+  const safeBrandId = brand?.id || defaultBrandId;
+
+  const brandOptions = allBrands.map(b =>
+    `<option value="${b.id}"${b.id === safeBrandId ? ' selected' : ''}>${esc(b.name)}</option>`
+  ).join('');
 
   const body = `
   <div class="page-header" style="margin-bottom:12px">
@@ -705,10 +712,16 @@ router.get('/sandbox', requireLogin, (req, res) => {
     <span style="font-size:12px;color:#999">直接與 AI 對話，測試守則與 FAQ 設定是否正確。對話不會送出到 Omnichat。</span>
   </div>
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-    <span style="font-size:13px;color:#555">目前品牌：<strong>${esc(brand?.name || '未知')}</strong>（BRAND_ID=${brandId}）</span>
+    <label style="font-size:13px;color:#555;display:flex;align-items:center;gap:8px">
+      測試品牌：
+      <select id="brand-select" onchange="switchBrand(this.value)"
+        style="padding:5px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;background:#fff">
+        ${brandOptions}
+      </select>
+    </label>
     <button onclick="clearChat()" class="btn btn-ghost btn-sm">🗑 清除對話</button>
   </div>
-  <div class="card" style="padding:0;display:flex;flex-direction:column;height:calc(100vh - 210px);min-height:400px">
+  <div class="card" style="padding:0;display:flex;flex-direction:column;height:calc(100vh - 220px);min-height:400px">
     <div id="chat-log" style="flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:10px"></div>
     <div style="border-top:1px solid #eee;padding:12px 16px;display:flex;gap:8px;background:#fafafa;border-radius:0 0 10px 10px">
       <input id="chat-input" type="text" placeholder="輸入訊息，按 Enter 送出…" style="flex:1;margin:0"
@@ -720,6 +733,24 @@ router.get('/sandbox', requireLogin, (req, res) => {
   <script>
   const log = document.getElementById('chat-log');
   const input = document.getElementById('chat-input');
+  let currentBrandId = ${safeBrandId};
+
+  function switchBrand(newBrandId) {
+    if (parseInt(newBrandId) === currentBrandId) return;
+    currentBrandId = parseInt(newBrandId);
+    // Clear chat history on server for this session+brand
+    fetch('${BASE}/sandbox/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brandId: currentBrandId }),
+    });
+    log.innerHTML = '';
+    appendBubble('ai', '已切換品牌，對話已重置。請開始測試。');
+    // Update URL without reload
+    const url = new URL(window.location);
+    url.searchParams.set('brand', currentBrandId);
+    history.replaceState(null, '', url);
+  }
 
   function appendBubble(role, text) {
     const isUser = role === 'user';
@@ -757,7 +788,7 @@ router.get('/sandbox', requireLogin, (req, res) => {
       const res = await fetch('${BASE}/sandbox/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, brandId: currentBrandId }),
       });
       const data = await res.json();
       thinking.remove();
@@ -778,7 +809,11 @@ router.get('/sandbox', requireLogin, (req, res) => {
 
   async function clearChat() {
     if (!confirm('確定清除目前對話？')) return;
-    await fetch('${BASE}/sandbox/clear', { method: 'POST' });
+    await fetch('${BASE}/sandbox/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brandId: currentBrandId }),
+    });
     log.innerHTML = '';
     appendBubble('ai', '對話已清除，可以重新開始測試。');
   }
@@ -792,11 +827,12 @@ router.get('/sandbox', requireLogin, (req, res) => {
 });
 
 router.post('/sandbox/chat', requireLogin, async (req, res) => {
-  const roomId  = `sandbox-${req.session.id}`;
+  const brandId  = req.body.brandId ? parseInt(req.body.brandId) : parseInt(process.env.BRAND_ID || '7');
+  const roomId   = `sandbox-${req.session.id}-${brandId}`;
   const userText = (req.body.message || '').trim();
   if (!userText) return res.json({ error: '訊息不能為空' });
   try {
-    const { reply, shouldTransfer } = await getAIReply({ roomId, userText });
+    const { reply, shouldTransfer } = await getAIReply({ roomId, userText, brandId });
     res.json({ reply, shouldTransfer });
   } catch (err) {
     console.error('[sandbox] AI error:', err.message);
@@ -805,7 +841,8 @@ router.post('/sandbox/chat', requireLogin, async (req, res) => {
 });
 
 router.post('/sandbox/clear', requireLogin, (req, res) => {
-  clearHistory(`sandbox-${req.session.id}`);
+  const brandId = req.body.brandId ? parseInt(req.body.brandId) : parseInt(process.env.BRAND_ID || '7');
+  clearHistory(`sandbox-${req.session.id}-${brandId}`);
   res.json({ ok: true });
 });
 
@@ -893,6 +930,84 @@ router.get('/logs/room/:roomId', requireLogin, (req, res) => {
   </div>
   <div class="card" style="max-width:680px">${bubbles}</div>`;
   res.send(layout('對話內容', body, 'logs'));
+});
+
+// ── Review Templates ──────────────────────────────
+router.get('/reviews', requireLogin, (req, res) => {
+  const templates = db.getAllReviewTemplates();
+
+  // Group by category
+  const catOrder = ['通用', '保健品', '保養品', '寵物', '清潔用品'];
+  const grouped = {};
+  catOrder.forEach(c => { grouped[c] = []; });
+  templates.forEach(t => { (grouped[t.category] || (grouped[t.category] = [])).push(t); });
+
+  const catColors = { '通用':'#546e7a','保健品':'#2e7d32','保養品':'#6a1b9a','寵物':'#e65100','清潔用品':'#1565c0' };
+
+  const sections = Object.entries(grouped).filter(([,list]) => list.length).map(([cat, list]) => {
+    const color = catColors[cat] || '#546e7a';
+    const activeCount  = list.filter(t => t.active).length;
+    const rows = list.map(t => `<tr>
+      <td width="60" style="font-family:monospace;font-size:12px">${esc(t.template_id)}</td>
+      <td style="font-size:12px;color:#888">${esc(t.sub_category)}</td>
+      <td style="max-width:380px;white-space:pre-wrap;font-size:12px;line-height:1.5">${esc(t.template_text)}</td>
+      <td width="70"><span class="badge ${t.active?'on':'off'}">${t.active?'啟用':'停用'}</span></td>
+      <td width="130" style="white-space:nowrap">
+        <a href="${BASE}/reviews/${t.id}/edit" class="btn btn-primary btn-sm">編輯</a>
+        <form method="POST" action="${BASE}/reviews/${t.id}/toggle" style="display:inline">
+          <input type="hidden" name="active" value="${t.active?'0':'1'}">
+          <button class="btn btn-sm ${t.active?'btn-ghost':'btn-success'}">${t.active?'停用':'啟用'}</button>
+        </form>
+      </td>
+    </tr>`).join('');
+
+    return `<div class="section-title" style="color:${color}">${cat} <span style="font-weight:400;font-size:11px">(${activeCount}/${list.length} 啟用)</span></div>
+    <div class="card" style="padding:0;margin-bottom:20px;overflow:hidden">
+      <table>
+        <thead><tr><th>ID</th><th>情境</th><th>模板內容</th><th>狀態</th><th>操作</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  const body = `<div class="page-header">
+    <h2>🏷 評論模板管理</h2>
+    <span style="font-size:12px;color:#999">管理蝦皮評論自動回覆模板。啟用的模板才會被 AI 選用。</span>
+  </div>
+  ${sections}`;
+  res.send(layout('評論模板', body, 'reviews'));
+});
+
+router.get('/reviews/:id/edit', requireLogin, (req, res) => {
+  const tpl = db.getReviewTemplateById(req.params.id);
+  if (!tpl) return res.redirect(`${BASE}/reviews`);
+  const body = `<div class="page-header">
+    <a href="${BASE}/reviews" style="color:#1a237e;font-size:13px">← 返回模板列表</a>
+  </div>
+  <div class="card" style="max-width:680px">
+    <h3>編輯模板 ${esc(tpl.template_id)}</h3>
+    <p style="font-size:12px;color:#888;margin-bottom:14px">類別：${esc(tpl.category)} ／ 情境：${esc(tpl.sub_category)}</p>
+    <form method="POST" action="${BASE}/reviews/${tpl.id}/edit">
+      <textarea name="template_text" rows="8" style="width:100%;font-size:13px" required>${esc(tpl.template_text)}</textarea>
+      <div class="form-actions" style="margin-top:12px">
+        <button class="btn btn-primary" type="submit">儲存</button>
+        <a href="${BASE}/reviews" class="btn btn-ghost">取消</a>
+      </div>
+    </form>
+  </div>`;
+  res.send(layout('編輯模板', body, 'reviews'));
+});
+
+router.post('/reviews/:id/edit', requireLogin, (req, res) => {
+  const text = (req.body.template_text || '').trim();
+  if (text) db.updateReviewTemplateText(req.params.id, text);
+  res.redirect(`${BASE}/reviews`);
+});
+
+router.post('/reviews/:id/toggle', requireLogin, (req, res) => {
+  const active = req.body.active === '1' ? 1 : 0;
+  db.toggleReviewTemplate(req.params.id, active);
+  res.redirect(`${BASE}/reviews`);
 });
 
 module.exports = router;

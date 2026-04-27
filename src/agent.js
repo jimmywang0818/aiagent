@@ -113,10 +113,10 @@ const tools = [
 // Conversation history per room: Map<roomId, Content[]>
 const histories = new Map();
 
-function buildSystemPrompt() {
-  const brandId = parseInt(process.env.BRAND_ID || '7');
-  const rules = db.getEnabledRules(brandId);
-  const faqs  = db.getEnabledFaqs(brandId);
+function buildSystemPrompt(brandId) {
+  const id = brandId || parseInt(process.env.BRAND_ID || '7');
+  const rules = db.getEnabledRules(id);
+  const faqs  = db.getEnabledFaqs(id);
 
   let prompt = SYSTEM_PROMPT;
 
@@ -135,8 +135,12 @@ function buildSystemPrompt() {
 
 /**
  * Process a customer message and return { reply, shouldTransfer }.
+ * @param {object} opts
+ * @param {string} opts.roomId
+ * @param {string} opts.userText
+ * @param {number} [opts.brandId]  Optional override; defaults to BRAND_ID env var
  */
-async function getAIReply({ roomId, userText }) {
+async function getAIReply({ roomId, userText, brandId }) {
   if (!histories.has(roomId)) {
     histories.set(roomId, []);
   }
@@ -146,7 +150,7 @@ async function getAIReply({ roomId, userText }) {
     model: 'gemini-2.0-flash',
     history,
     config: {
-      systemInstruction: buildSystemPrompt(),
+      systemInstruction: buildSystemPrompt(brandId),
       tools,
     },
   });

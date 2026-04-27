@@ -263,6 +263,22 @@ function getReviewTemplates(templateCategory) {
   return db.prepare("SELECT * FROM review_templates WHERE active=1 AND category='通用' ORDER BY template_id").all();
 }
 
+function getAllReviewTemplates() {
+  return db.prepare('SELECT * FROM review_templates ORDER BY category, template_id').all();
+}
+
+function updateReviewTemplateText(id, templateText) {
+  return db.prepare('UPDATE review_templates SET template_text=? WHERE id=?').run(templateText, id);
+}
+
+function getReviewTemplateById(id) {
+  return db.prepare('SELECT * FROM review_templates WHERE id=?').get(id);
+}
+
+function toggleReviewTemplate(id, active) {
+  return db.prepare('UPDATE review_templates SET active=? WHERE id=?').run(active ? 1 : 0, id);
+}
+
 // ── Conversation Logs ─────────────────────────────
 function logMessage({ brandId, roomId, platform, role, message }) {
   return db.prepare('INSERT INTO conversation_logs (brand_id,room_id,platform,role,message) VALUES (?,?,?,?,?)')
@@ -299,6 +315,6 @@ module.exports = {
   getBrands, getBrandById, updateBrand,
   getRules, getGlobalRules, getCategoryRules, getEnabledRules, addRule, upsertRule, updateRule, deleteRule,
   getFaqs, getGlobalFaqs, getCategoryFaqs, getEnabledFaqs, addFaq, upsertFaq, updateFaq, deleteFaq,
-  getReviewTemplates,
+  getReviewTemplates, getAllReviewTemplates, updateReviewTemplateText, getReviewTemplateById, toggleReviewTemplate,
   logMessage, getLogs, getLogRooms, getLogPlatforms, getRoomMessages,
 };
