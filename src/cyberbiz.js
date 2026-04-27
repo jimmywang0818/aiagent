@@ -106,4 +106,68 @@ async function getProduct(productId) {
   return res.json();
 }
 
-module.exports = { searchProducts, getProduct, loadAllProducts };
+// ── Order status translations ──────────────────────
+const FULFILLMENT_STATUS = {
+  fulfilled:   '已出貨',
+  unfulfilled: '備貨中（尚未出貨）',
+  partial:     '部分出貨',
+  restocked:   '已退貨入庫',
+  null:        '備貨中（尚未出貨）',
+};
+const FINANCIAL_STATUS = {
+  paid:              '已付款',
+  unpaid:            '未付款',
+  pending:           '付款確認中',
+  refunded:          '已退款',
+  partially_refunded:'部分退款',
+  voided:            '已作廢',
+};
+
+function simplifyOrder(o) {
+  const fulfillment = o.fulfillments?.[0];
+  return {
+    orderNumber:      o.order_number || o.name || String(o.id),
+    status:           o.status === 'cancelled' ? '已取消' : '處理中',
+    financialStatus:  FINANCIAL_STATUS[o.financial_status] || o.financial_status || '未知',
+    fulfillmentStatus:FULFILLMENT_STATUS[o.fulfillment_status] || o.fulfillment_status || '備貨中',
+    createdAt:        o.created_at ? o.created_at.slice(0, 10) : null,
+    shippingMethod:   o.shipping_lines?.[0]?.title || null,
+    trackingCompany:  fulfillment?.tracking_company || null,
+    trackingNumber:   fulfillment?.tracking_number || null,
+    trackingUrl:      fulfillment?.tracking_url || null,
+    lineItems:        (o.line_items || []).map(i => `${i.title} x${i.quantity}`),
+    totalPrice:       o.total_price,
+  };
+}
+
+/**
+ * Look up order(s) by order number, email, or customer name.
+ * Returns array of simplified orders, or null on failure.
+ */
+async function getOrderStatus({ orderNumber, email, name }) {
+  const queries = [];
+  if (orderNumber) queries.push(`query=${encodeURIComponent(orderNumber)}`);
+  else if (email)  queries.push(`email=${encodeURIComponent(email)}`);
+  else if (name)   queries.push(`query=${encodeURIComponent(name)}`);
+  else return null;
+
+  const url = `${BASE_URL}/v1/orders?${queries.join('&')}&limit=5`;
+  console.log(`[cyberbiz] getOrderStatus: ${url}`);
+
+  try {
+    const res = await fetch(url, { headers: getHeaders() });
+    if (!res.ok) {
+      console.error(`[cyberbiz] getOrderStatus failed: ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    const orders = Array.isArray(data) ? data : (data.orders || (data.id ? [data] : []));
+    if (!orders.length) return [];
+    return orders.slice(0, 3).map(simplifyOrder);
+  } catch (err) {
+    console.error(`[cyberbiz] getOrderStatus error: ${err.message}`);
+    return null;
+  }
+}
+
+module.exports = { searchProducts, getProduct, getOrderStatus, loadAllProducts };

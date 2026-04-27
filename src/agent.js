@@ -1,7 +1,7 @@
 'use strict';
 
 const { GoogleGenAI } = require('@google/genai');
-const { searchProducts } = require('./cyberbiz');
+const { searchProducts, getOrderStatus } = require('./cyberbiz');
 const db = require('./db');
 
 const ai = new GoogleGenAI({
@@ -45,25 +45,27 @@ const SYSTEM_PROMPT = `你是達摩本草的專業客服助理，負責透過 LI
 - 改用口碑說法回應，例如：「這款是我們的人氣商品，很多顧客長期回購」、「深受顧客喜愛，評價非常好」。
 - 可搭配引導：「您可以參考商品頁面上的顧客評價，會更有參考價值！」
 
-## 訂單相關查詢處理原則
-訂單問題不可立即轉接，必須先收集資訊再決定後續動作。
+## 訂單查詢處理原則
+- 顧客問訂單狀態（出貨了嗎、到哪裡了、幾天會到、有沒有出貨）：
+  先問「請問您的訂單編號是多少？」
+  → 顧客提供訂單號後，立即呼叫 get_order_status 查詢
+  → 查到結果：直接告知出貨狀態、物流資訊
+  → 查無此訂單：請顧客提供訂購時的 Email 或姓名再查一次
+  → API 無法查詢：告知「系統目前無法查詢，我幫您轉接客服確認」再轉接
 
-### 出貨/配送狀態
-- 顧客問「出貨了嗎」、「到哪裡了」、「幾天會到」等：
-  先回覆：「我幫您查詢一下！請問您的訂單編號是多少？（格式如：DA123456 或純數字皆可）」
-  - 若顧客提供訂單號：回覆「感謝！您的訂單 #[號碼] 我已記下，出貨後系統會發送宅配通知簡訊/Email，請確認信箱。若超過預計出貨時間仍未收到通知，我幫您轉接客服確認。」
-  - 若顧客說沒有訂單號：請他提供訂購時的姓名或電話。
+- 查到訂單後如何回覆：
+  - 已出貨且有追蹤號：「您的訂單 #XXX 已於 [日期] 出貨，[物流公司] 追蹤號碼為 [號碼]，您可以至官網查詢目前配送進度。」
+  - 備貨中（尚未出貨）：「您的訂單 #XXX 目前狀態為備貨中，尚未出貨，一般付款後 1-3 個工作天出貨，若超過時間請再告知我。」
+  - 已取消：「您的訂單 #XXX 顯示為已取消，若有疑問我幫您轉接客服確認。」
+  - 查到多筆：列出訂單清單讓顧客確認是哪一筆
 
 ### 退換貨申請
 - 顧客說「想退貨」、「收到商品有問題」、「換貨」等：
-  先收集：訂單編號、退換原因（品質問題/尺寸/不符期待等）、是否已拆封。
-  收集完後：「感謝您提供資訊！退換貨須於收到商品 7 天內提出，商品需保持完整未拆封（品質問題除外）。我現在幫您轉接客服，請您準備好商品並告知客服訂單號碼 #[號碼]。」→ 再轉接。
+  先呼叫 get_order_status 查詢訂單，收集：訂單編號、退換原因、是否拆封。
+  收集完後說明退換貨政策（7天內、完整未拆封）再轉接真人。
 
 ### 修改訂單（地址、數量、取消）
-- 顧客要修改訂單資訊：先詢問訂單編號，確認後告知「訂單修改需由客服協助，我幫您轉接，請告知客服訂單號 #[號碼] 及修改內容。」→ 再轉接。
-
-### 未收到包裹
-- 先詢問訂單編號和預計到貨日，確認後建議先查宅配簡訊或電話。若真的逾期，才轉接。
+- 先查到訂單確認存在，再告知需由客服處理並轉接。
 
 ## 不回覆的資訊
 - 不透露庫存數量、SKU 編號、銷量數字等內部資料。
@@ -83,16 +85,25 @@ const tools = [
     functionDeclarations: [
       {
         name: 'search_products',
-        description: '搜尋達摩本草商品目錄，回傳商品名稱、價格、庫存狀態、網址等資訊',
+        description: '搜尋商品目錄，回傳商品名稱、價格、庫存狀態、網址等資訊',
         parameters: {
           type: 'OBJECT',
           properties: {
-            keyword: {
-              type: 'STRING',
-              description: '搜尋關鍵字，如商品名稱、功效、分類等',
-            },
+            keyword: { type: 'STRING', description: '搜尋關鍵字，如商品名稱、功效、分類等' },
           },
           required: ['keyword'],
+        },
+      },
+      {
+        name: 'get_order_status',
+        description: '查詢顧客訂單狀態，包含是否出貨、物流追蹤號碼、付款狀態等資訊',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            order_number: { type: 'STRING', description: '訂單編號，如 DA123456 或純數字' },
+            email:        { type: 'STRING', description: '顧客 Email（訂單號查無結果時使用）' },
+            name:         { type: 'STRING', description: '訂購人姓名（訂單號查無結果時使用）' },
+          },
         },
       },
     ],
@@ -149,14 +160,14 @@ async function getAIReply({ roomId, userText }) {
 
     for (const call of response.functionCalls) {
       if (call.name === 'search_products') {
-        console.log(`[agent] Searching Cyberbiz: "${call.args.keyword}"`);
+        console.log(`[agent] search_products: "${call.args.keyword}"`);
         const products = await searchProducts(call.args.keyword);
-        fnResults.push({
-          functionResponse: {
-            name: call.name,
-            response: { products },
-          },
-        });
+        fnResults.push({ functionResponse: { name: call.name, response: { products } } });
+      } else if (call.name === 'get_order_status') {
+        const { order_number, email, name } = call.args;
+        console.log(`[agent] get_order_status: order=${order_number} email=${email} name=${name}`);
+        const orders = await getOrderStatus({ orderNumber: order_number, email, name });
+        fnResults.push({ functionResponse: { name: call.name, response: { orders } } });
       }
     }
 
