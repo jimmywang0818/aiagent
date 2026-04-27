@@ -179,11 +179,22 @@ function getLogs({ brandId, limit = 100, offset = 0 } = {}) {
   }
   return db.prepare('SELECT l.*,b.name as brand_name FROM conversation_logs l LEFT JOIN brands b ON l.brand_id=b.id ORDER BY l.id DESC LIMIT ? OFFSET ?').all(limit, offset);
 }
-function getLogRooms(brandId) {
-  if (brandId) {
-    return db.prepare('SELECT room_id, platform, MIN(created_at) as started, MAX(created_at) as last_msg, COUNT(*) as msg_count FROM conversation_logs WHERE brand_id=? GROUP BY room_id ORDER BY last_msg DESC LIMIT 50').all(brandId);
-  }
-  return db.prepare('SELECT room_id, platform, brand_id, MIN(created_at) as started, MAX(created_at) as last_msg, COUNT(*) as msg_count FROM conversation_logs GROUP BY room_id ORDER BY last_msg DESC LIMIT 50').all();
+function getLogRooms({ brandId, platform, search } = {}) {
+  const conds = [], params = [];
+  if (brandId)  { conds.push('l.brand_id=?');       params.push(brandId); }
+  if (platform) { conds.push('l.platform=?');        params.push(platform); }
+  if (search)   { conds.push('l.room_id LIKE ?');    params.push(`%${search}%`); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  return db.prepare(`
+    SELECT l.room_id, l.platform, l.brand_id, b.name as brand_name,
+           MIN(l.created_at) as started, MAX(l.created_at) as last_msg, COUNT(*) as msg_count
+    FROM conversation_logs l LEFT JOIN brands b ON l.brand_id=b.id
+    ${where}
+    GROUP BY l.room_id ORDER BY last_msg DESC LIMIT 100
+  `).all(...params);
+}
+function getLogPlatforms() {
+  return db.prepare('SELECT DISTINCT platform FROM conversation_logs WHERE platform IS NOT NULL ORDER BY platform').all().map(r => r.platform);
 }
 function getRoomMessages(roomId) {
   return db.prepare('SELECT * FROM conversation_logs WHERE room_id=? ORDER BY id').all(roomId);
@@ -193,5 +204,5 @@ module.exports = {
   getBrands, getBrandById, updateBrand,
   getRules, getGlobalRules, getCategoryRules, getEnabledRules, addRule, upsertRule, updateRule, deleteRule,
   getFaqs, getGlobalFaqs, getCategoryFaqs, getEnabledFaqs, addFaq, upsertFaq, updateFaq, deleteFaq,
-  logMessage, getLogs, getLogRooms, getRoomMessages,
+  logMessage, getLogs, getLogRooms, getLogPlatforms, getRoomMessages,
 };

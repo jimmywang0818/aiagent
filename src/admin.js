@@ -9,7 +9,27 @@ const BASE = '/tsa-ai-agent-manage';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 
 const CATEGORIES = ['保健品', '寵物品牌', '保養品', '個人清潔用品'];
-const CAT_COLOR = { '保健品':'#2e7d32','寵物品牌':'#e65100','保養品':'#6a1b9a','個人清潔用品':'#1565c0','其他':'#546e7a' };
+const CAT_COLOR  = { '保健品':'#2e7d32','寵物品牌':'#e65100','保養品':'#6a1b9a','個人清潔用品':'#1565c0','其他':'#546e7a' };
+
+// Custom brand display order per category (brands not listed appear at the end)
+const BRAND_ORDER = {
+  '保健品':     ['達摩', '御熹堂', '大島'],
+  '寵物品牌':   ['毛孩', '奧沛', '優固倍', '愛旺斯'],
+  '保養品':     ['芙木', 'Tryme', 'XXS'],
+  '個人清潔用品':['PH'],
+};
+
+function sortBrands(brands, cat) {
+  const order = BRAND_ORDER[cat];
+  if (!order) return brands;
+  return [...brands].sort((a, b) => {
+    const ai = order.indexOf(a.name), bi = order.indexOf(b.name);
+    if (ai === -1 && bi === -1) return 0;
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+}
 
 function requireLogin(req, res, next) {
   if (req.session.loggedIn) return next();
@@ -27,18 +47,21 @@ function layout(title, body, activeKey) {
   brands.forEach(b => { (grouped[b.category] || grouped['其他']).push(b); });
 
   const catLinks = [...CATEGORIES, '其他'].map(cat => {
-    const list = grouped[cat];
-    if (!list?.length) return '';
+    const rawList = grouped[cat];
+    if (!rawList?.length) return '';
+    const list  = sortBrands(rawList, cat);
     const color = CAT_COLOR[cat] || '#546e7a';
+    const isActive = activeKey === `cat-${cat}` || list.some(b => activeKey === `brand-${b.id}`);
     const brandItems = list.map(b =>
       `<a href="${BASE}/brands/${b.id}" class="sb-item sb-brand${activeKey===`brand-${b.id}`?' active':''}">${esc(b.name)}</a>`
     ).join('');
-    return `<div class="sb-group">
-      <a href="${BASE}/category/${encodeURIComponent(cat)}" class="sb-item sb-cat-link${activeKey===`cat-${cat}`?' active':''}" style="color:${color}">
-        <span>${cat}</span>
-      </a>
+    return `<details class="sb-group"${isActive ? ' open' : ' open'}>
+      <summary class="sb-item sb-cat-link${activeKey===`cat-${cat}`?' active':''}" style="color:${color}">
+        <a href="${BASE}/category/${encodeURIComponent(cat)}" class="sb-cat-label" style="color:${color};text-decoration:none">${cat}</a>
+        <span class="sb-chevron">▾</span>
+      </summary>
       ${brandItems}
-    </div>`;
+    </details>`;
   }).join('');
 
   return `<!DOCTYPE html>
@@ -61,7 +84,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .sb-item{display:block;padding:7px 16px;font-size:13px;color:#444;text-decoration:none;transition:background .12s}
 .sb-item:hover{background:#f5f5f5}
 .sb-item.active{background:#e8eaf6;color:#1a237e;font-weight:600}
-.sb-cat-link{font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;padding:8px 16px 5px}
+.sb-cat-link{font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;padding:8px 16px 5px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none}
+.sb-cat-label{flex:1}
+.sb-chevron{font-size:11px;color:#aaa;transition:transform .2s;flex-shrink:0}
+details.sb-group{border:none}
+details.sb-group>summary{list-style:none}
+details.sb-group>summary::-webkit-details-marker{display:none}
+details.sb-group>summary::marker{display:none}
+details.sb-group:not([open])>.sb-chevron,details.sb-group:not([open]) .sb-chevron{transform:rotate(-90deg)}
 .sb-brand{padding-left:24px;font-size:13px}
 .sb-divider{border:none;border-top:1px solid #f0f0f0;margin:6px 0}
 .main{flex:1;overflow-y:auto;padding:24px 28px}
@@ -101,6 +131,7 @@ textarea{min-height:72px;resize:vertical}
 .brand-card-name{font-size:16px;font-weight:700}
 .stat{font-size:11px;color:#aaa;margin-top:2px}
 .section-title{font-size:12px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.6px;margin:24px 0 10px}
+.plat-badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600;background:#e3f2fd;color:#1565c0}
 .upload-area{border:2px dashed #ddd;border-radius:8px;padding:20px;text-align:center;background:#fafafa}
 .upload-area:hover{border-color:#3f51b5}
 .alert{padding:10px 14px;border-radius:6px;margin-bottom:14px;font-size:13px}
@@ -159,8 +190,9 @@ router.get('/', requireLogin, (req, res) => {
   brands.forEach(b => { (grouped[b.category] || grouped['其他']).push(b); });
 
   const sections = [...CATEGORIES, '其他'].map(cat => {
-    const list = grouped[cat];
-    if (!list?.length) return '';
+    const rawList = grouped[cat];
+    if (!rawList?.length) return '';
+    const list  = sortBrands(rawList, cat);
     const color = CAT_COLOR[cat] || '#546e7a';
     const catRules = db.getCategoryRules(cat).length;
     const catFaqs  = db.getCategoryFaqs(cat).length;
@@ -661,32 +693,64 @@ router.post('/brands/:id/faqs/:fid/delete', requireLogin, (req, res) => {
 
 // ── Conversation Logs ─────────────────────────────
 router.get('/logs', requireLogin, (req, res) => {
-  const brandId = req.query.brand ? parseInt(req.query.brand) : null;
-  const brands  = db.getBrands();
-  const rooms   = db.getLogRooms(brandId);
+  const brandId  = req.query.brand    ? parseInt(req.query.brand) : null;
+  const platform = req.query.platform || null;
+  const search   = req.query.q        || null;
+  const brands   = db.getBrands();
+  const platforms= db.getLogPlatforms();
+  const rooms    = db.getLogRooms({ brandId, platform, search });
 
-  const filter = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;flex-wrap:wrap">
-    <span style="font-size:12px;color:#888">篩選：</span>
-    <a href="${BASE}/logs" class="btn btn-sm ${!brandId?'btn-primary':'btn-ghost'}">全部</a>
-    ${brands.map(b=>`<a href="${BASE}/logs?brand=${b.id}" class="btn btn-sm ${brandId===b.id?'btn-primary':'btn-ghost'}">${esc(b.name)}</a>`).join('')}
+  // Build a query string helper (keeps existing filters when adding one more)
+  function qs(extra) {
+    const p = {};
+    if (brandId)  p.brand    = brandId;
+    if (platform) p.platform = platform;
+    if (search)   p.q        = search;
+    Object.assign(p, extra);
+    // remove nulls
+    Object.keys(p).forEach(k => { if (!p[k] && p[k] !== 0) delete p[k]; });
+    const str = new URLSearchParams(p).toString();
+    return str ? '?' + str : '';
+  }
+
+  const brandFilter = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    <span style="font-size:12px;color:#888;white-space:nowrap;min-width:32px">品牌：</span>
+    <a href="${BASE}/logs${qs({brand:null})}" class="btn btn-sm ${!brandId?'btn-primary':'btn-ghost'}">全部</a>
+    ${brands.map(b=>`<a href="${BASE}/logs${qs({brand:b.id})}" class="btn btn-sm ${brandId===b.id?'btn-primary':'btn-ghost'}">${esc(b.name)}</a>`).join('')}
   </div>`;
+
+  const platFilter = platforms.length ? `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px">
+    <span style="font-size:12px;color:#888;white-space:nowrap;min-width:32px">平台：</span>
+    <a href="${BASE}/logs${qs({platform:null})}" class="btn btn-sm ${!platform?'btn-primary':'btn-ghost'}">全部</a>
+    ${platforms.map(p=>`<a href="${BASE}/logs${qs({platform:p})}" class="btn btn-sm ${platform===p?'btn-primary':'btn-ghost'}">${esc(p)}</a>`).join('')}
+  </div>` : '';
+
+  const clearSearch = search ? `<a href="${BASE}/logs${qs({q:null})}" class="btn btn-ghost btn-sm">✕ 清除</a>` : '';
+  const searchBox = `<form method="GET" action="${BASE}/logs" style="margin-top:10px;display:flex;gap:8px;align-items:center">
+    ${brandId  ? `<input type="hidden" name="brand"    value="${brandId}">` : ''}
+    ${platform ? `<input type="hidden" name="platform" value="${esc(platform)}">` : ''}
+    <input type="text" name="q" value="${esc(search||'')}" placeholder="搜尋 Room ID..." style="width:220px;margin:0">
+    <button class="btn btn-ghost btn-sm" type="submit">🔍 搜尋</button>
+    ${clearSearch}
+  </form>`;
 
   const rows = rooms.length
     ? rooms.map(r=>`<tr>
-        <td><a href="${BASE}/logs/room/${encodeURIComponent(r.room_id)}" style="color:#1a237e;text-decoration:none;font-family:monospace;font-size:12px">${esc(r.room_id.slice(-12))}</a></td>
+        <td><span class="plat-badge">${esc(r.platform||'—')}</span></td>
         <td>${esc(r.brand_name||'—')}</td>
-        <td>${esc(r.platform||'—')}</td>
         <td>${r.msg_count}</td>
         <td style="font-size:12px;color:#888">${esc(r.last_msg)}</td>
         <td><a href="${BASE}/logs/room/${encodeURIComponent(r.room_id)}" class="btn btn-primary btn-sm">查看</a></td>
       </tr>`).join('')
-    : `<tr><td colspan="6" class="empty">尚無對話紀錄</td></tr>`;
+    : `<tr><td colspan="5" class="empty">尚無對話紀錄</td></tr>`;
 
   const body = `<h2>📋 對話紀錄</h2>
-  <p style="color:#999;font-size:13px;margin-bottom:16px">顯示最近 50 個對話</p>
-  ${filter}
+  <p style="color:#999;font-size:13px;margin-bottom:16px">顯示最近 100 個對話</p>
+  <div class="card" style="margin-bottom:16px;padding:14px 18px">
+    ${brandFilter}${platFilter}${searchBox}
+  </div>
   <div class="card"><table>
-    <thead><tr><th>Room ID</th><th>品牌</th><th>平台</th><th>訊息數</th><th>最後時間</th><th>操作</th></tr></thead>
+    <thead><tr><th>平台</th><th>品牌</th><th>訊息數</th><th>最後時間</th><th>操作</th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
   res.send(layout('對話紀錄', body, 'logs'));
