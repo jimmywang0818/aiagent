@@ -1,10 +1,11 @@
 'use strict';
 
-const { VertexAI } = require('@google-cloud/vertexai');
+const { GoogleGenAI } = require('@google/genai');
 const { searchProducts } = require('./cyberbiz');
 const db = require('./db');
 
-const vertexAI = new VertexAI({
+const ai = new GoogleGenAI({
+  vertexai: true,
   project:  process.env.GOOGLE_CLOUD_PROJECT,
   location: process.env.VERTEX_LOCATION || 'us-central1',
 });
@@ -101,18 +102,6 @@ function buildSystemPrompt() {
   return prompt;
 }
 
-// Extract plain text from a Vertex AI response
-function responseText(response) {
-  const parts = response.candidates?.[0]?.content?.parts || [];
-  return parts.filter(p => p.text).map(p => p.text).join('');
-}
-
-// Extract function call parts from a Vertex AI response
-function responseFunctionCalls(response) {
-  const parts = response.candidates?.[0]?.content?.parts || [];
-  return parts.filter(p => p.functionCall).map(p => p.functionCall);
-}
-
 /**
  * Process a customer message and return { reply, shouldTransfer }.
  */
@@ -122,31 +111,27 @@ async function getAIReply({ roomId, userText }) {
   }
   const history = histories.get(roomId);
 
-  const model = vertexAI.getGenerativeModel({
-    model: 'gemini-2.0-flash-001',
-    systemInstruction: {
-      role: 'system',
-      parts: [{ text: buildSystemPrompt() }],
+  const chat = ai.chats.create({
+    model: 'gemini-2.0-flash',
+    history,
+    config: {
+      systemInstruction: buildSystemPrompt(),
+      tools,
     },
-    tools,
   });
 
-  const chat = model.startChat({ history });
-
   // First turn: send user message
-  let result   = await chat.sendMessage(userText);
-  let response = result.response;
+  let response = await chat.sendMessage({ message: userText });
 
   // Handle function calls in a loop (Gemini may chain multiple calls)
-  while (responseFunctionCalls(response).length > 0) {
-    const calls = responseFunctionCalls(response);
-    const functionResults = [];
+  while (response.functionCalls?.length > 0) {
+    const fnResults = [];
 
-    for (const call of calls) {
+    for (const call of response.functionCalls) {
       if (call.name === 'search_products') {
         console.log(`[agent] Searching Cyberbiz: "${call.args.keyword}"`);
         const products = await searchProducts(call.args.keyword);
-        functionResults.push({
+        fnResults.push({
           functionResponse: {
             name: call.name,
             response: { products },
@@ -155,14 +140,13 @@ async function getAIReply({ roomId, userText }) {
       }
     }
 
-    result   = await chat.sendMessage(functionResults);
-    response = result.response;
+    response = await chat.sendMessage({ message: fnResults });
   }
 
-  const reply = responseText(response);
+  const reply = response.text ?? '';
 
   // Save updated history
-  histories.set(roomId, await chat.getHistory());
+  histories.set(roomId, chat.getHistory());
 
   const shouldTransfer = reply.includes('[TRANSFER_TO_HUMAN]');
   return { reply: shouldTransfer ? null : reply, shouldTransfer };
