@@ -88,6 +88,7 @@ app.post(WEBHOOK_PATH, async (req, res) => {
     try {
       const { reply, shouldTransfer } = await getAIReply({ roomId, userText });
 
+      console.log(`[webhook] AI reply: "${(reply||'[TRANSFER]').slice(0,80)}"`);
       if (shouldTransfer) {
         const transferMsg = '感謝您的耐心等候，我將為您轉接真人客服，請稍候...';
         await sendMessage({ teamId, roomId, replyToken, platform, text: transferMsg });
