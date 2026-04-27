@@ -1,10 +1,13 @@
 'use strict';
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { VertexAI } = require('@google-cloud/vertexai');
 const { searchProducts } = require('./cyberbiz');
 const db = require('./db');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const vertexAI = new VertexAI({
+  project:  process.env.GOOGLE_CLOUD_PROJECT,
+  location: process.env.VERTEX_LOCATION || 'us-central1',
+});
 
 const SYSTEM_PROMPT = `你是達摩本草的專業客服助理，負責透過 LINE 與顧客溝通。
 請以親切、有溫度的繁體中文回覆，語氣自然不生硬，回答簡潔不冗長。
@@ -75,13 +78,13 @@ const tools = [
   },
 ];
 
-// Conversation history per room: Map<roomId, Message[]>
+// Conversation history per room: Map<roomId, Content[]>
 const histories = new Map();
 
 function buildSystemPrompt() {
   const brandId = parseInt(process.env.BRAND_ID || '7');
   const rules = db.getEnabledRules(brandId);
-  const faqs = db.getEnabledFaqs(brandId);
+  const faqs  = db.getEnabledFaqs(brandId);
 
   let prompt = SYSTEM_PROMPT;
 
@@ -98,6 +101,18 @@ function buildSystemPrompt() {
   return prompt;
 }
 
+// Extract plain text from a Vertex AI response
+function responseText(response) {
+  const parts = response.candidates?.[0]?.content?.parts || [];
+  return parts.filter(p => p.text).map(p => p.text).join('');
+}
+
+// Extract function call parts from a Vertex AI response
+function responseFunctionCalls(response) {
+  const parts = response.candidates?.[0]?.content?.parts || [];
+  return parts.filter(p => p.functionCall).map(p => p.functionCall);
+}
+
 /**
  * Process a customer message and return { reply, shouldTransfer }.
  */
@@ -107,21 +122,24 @@ async function getAIReply({ roomId, userText }) {
   }
   const history = histories.get(roomId);
 
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-    systemInstruction: buildSystemPrompt(),
+  const model = vertexAI.getGenerativeModel({
+    model: 'gemini-2.0-flash-001',
+    systemInstruction: {
+      role: 'system',
+      parts: [{ text: buildSystemPrompt() }],
+    },
     tools,
   });
 
   const chat = model.startChat({ history });
 
   // First turn: send user message
-  let result = await chat.sendMessage(userText);
+  let result   = await chat.sendMessage(userText);
   let response = result.response;
 
   // Handle function calls in a loop (Gemini may chain multiple calls)
-  while (response.functionCalls()?.length > 0) {
-    const calls = response.functionCalls();
+  while (responseFunctionCalls(response).length > 0) {
+    const calls = responseFunctionCalls(response);
     const functionResults = [];
 
     for (const call of calls) {
@@ -137,11 +155,11 @@ async function getAIReply({ roomId, userText }) {
       }
     }
 
-    result = await chat.sendMessage(functionResults);
+    result   = await chat.sendMessage(functionResults);
     response = result.response;
   }
 
-  const reply = response.text();
+  const reply = responseText(response);
 
   // Save updated history
   histories.set(roomId, await chat.getHistory());
