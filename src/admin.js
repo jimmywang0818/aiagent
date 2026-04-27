@@ -3,6 +3,7 @@
 const { Router } = require('express');
 const multer = require('multer');
 const db = require('./db');
+const { getAIReply, clearHistory } = require('./agent');
 
 const router = Router();
 const BASE = '/tsa-ai-agent-manage';
@@ -151,8 +152,9 @@ textarea{min-height:72px;resize:vertical}
 <div class="body-wrap">
   <div class="sidebar">
     <div class="sb-special">
-      <a href="${BASE}/global" class="sb-item${activeKey==='global'?' active':''}">🌐 全域設定</a>
-      <a href="${BASE}/logs"   class="sb-item${activeKey==='logs'  ?' active':''}">📋 對話紀錄</a>
+      <a href="${BASE}/global"   class="sb-item${activeKey==='global'  ?' active':''}">🌐 全域設定</a>
+      <a href="${BASE}/sandbox"  class="sb-item${activeKey==='sandbox' ?' active':''}">🧪 沙盒測試</a>
+      <a href="${BASE}/logs"     class="sb-item${activeKey==='logs'    ?' active':''}">📋 對話紀錄</a>
     </div>
     <hr class="sb-divider">
     ${catLinks}
@@ -689,6 +691,122 @@ router.post('/brands/:id/faqs/:fid/edit', requireLogin, (req, res) => {
 });
 router.post('/brands/:id/faqs/:fid/delete', requireLogin, (req, res) => {
   db.deleteFaq(req.params.fid); res.redirect(`${BASE}/brands/${req.params.id}/faqs`);
+});
+
+// ── Sandbox ───────────────────────────────────────
+router.get('/sandbox', requireLogin, (req, res) => {
+  const brandId = parseInt(process.env.BRAND_ID || '7');
+  const brand   = db.getBrandById(brandId);
+  const roomId  = `sandbox-${req.session.id}`;
+
+  const body = `
+  <div class="page-header" style="margin-bottom:12px">
+    <h2>🧪 沙盒測試</h2>
+    <span style="font-size:12px;color:#999">直接與 AI 對話，測試守則與 FAQ 設定是否正確。對話不會送出到 Omnichat。</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    <span style="font-size:13px;color:#555">目前品牌：<strong>${esc(brand?.name || '未知')}</strong>（BRAND_ID=${brandId}）</span>
+    <button onclick="clearChat()" class="btn btn-ghost btn-sm">🗑 清除對話</button>
+  </div>
+  <div class="card" style="padding:0;display:flex;flex-direction:column;height:calc(100vh - 210px);min-height:400px">
+    <div id="chat-log" style="flex:1;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:10px"></div>
+    <div style="border-top:1px solid #eee;padding:12px 16px;display:flex;gap:8px;background:#fafafa;border-radius:0 0 10px 10px">
+      <input id="chat-input" type="text" placeholder="輸入訊息，按 Enter 送出…" style="flex:1;margin:0"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}">
+      <button onclick="sendMsg()" class="btn btn-primary">送出</button>
+    </div>
+  </div>
+
+  <script>
+  const log = document.getElementById('chat-log');
+  const input = document.getElementById('chat-input');
+
+  function appendBubble(role, text) {
+    const isUser = role === 'user';
+    const isErr  = role === 'error';
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;flex-direction:column;align-items:' + (isUser ? 'flex-end' : 'flex-start');
+    const label = document.createElement('span');
+    label.style.cssText = 'font-size:11px;color:#bbb;margin-bottom:3px';
+    label.textContent = isUser ? '您' : isErr ? '系統錯誤' : 'AI 客服';
+    const bubble = document.createElement('div');
+    bubble.style.cssText = 'padding:10px 14px;border-radius:12px;max-width:78%;font-size:13px;line-height:1.65;white-space:pre-wrap;word-break:break-word;background:'
+      + (isUser ? '#1a237e;color:#fff' : isErr ? '#fce4ec;color:#c62828' : '#f1f3f4;color:#333');
+    bubble.textContent = text;
+    wrap.appendChild(label);
+    wrap.appendChild(bubble);
+    log.appendChild(wrap);
+    log.scrollTop = log.scrollHeight;
+    return wrap;
+  }
+
+  function appendThinking() {
+    const wrap = appendBubble('ai', '正在思考中…');
+    wrap.querySelector('div').style.opacity = '0.5';
+    return wrap;
+  }
+
+  async function sendMsg() {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    input.disabled = true;
+    appendBubble('user', text);
+    const thinking = appendThinking();
+    try {
+      const res = await fetch('${BASE}/sandbox/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+      const data = await res.json();
+      thinking.remove();
+      if (data.shouldTransfer) {
+        appendBubble('ai', '⚡ [轉接] 此情況會轉接真人客服');
+      } else if (data.error) {
+        appendBubble('error', data.error);
+      } else {
+        appendBubble('ai', data.reply);
+      }
+    } catch (e) {
+      thinking.remove();
+      appendBubble('error', '連線失敗：' + e.message);
+    }
+    input.disabled = false;
+    input.focus();
+  }
+
+  async function clearChat() {
+    if (!confirm('確定清除目前對話？')) return;
+    await fetch('${BASE}/sandbox/clear', { method: 'POST' });
+    log.innerHTML = '';
+    appendBubble('ai', '對話已清除，可以重新開始測試。');
+  }
+
+  // Welcome message
+  appendBubble('ai', '您好！我是 AI 客服助理，請輸入問題開始測試。');
+  input.focus();
+  </script>`;
+
+  res.send(layout('沙盒測試', body, 'sandbox'));
+});
+
+router.post('/sandbox/chat', requireLogin, async (req, res) => {
+  const roomId  = `sandbox-${req.session.id}`;
+  const userText = (req.body.message || '').trim();
+  if (!userText) return res.json({ error: '訊息不能為空' });
+  try {
+    const { reply, shouldTransfer } = await getAIReply({ roomId, userText });
+    res.json({ reply, shouldTransfer });
+  } catch (err) {
+    console.error('[sandbox] AI error:', err.message);
+    res.json({ error: err.message });
+  }
+});
+
+router.post('/sandbox/clear', requireLogin, (req, res) => {
+  clearHistory(`sandbox-${req.session.id}`);
+  res.json({ ok: true });
 });
 
 // ── Conversation Logs ─────────────────────────────
