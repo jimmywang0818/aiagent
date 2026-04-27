@@ -936,19 +936,24 @@ router.get('/logs/room/:roomId', requireLogin, (req, res) => {
 
 // ── Product Cache Debug ───────────────────────────
 router.get('/products', requireLogin, (req, res) => {
-  const cache = getProductCache();
+  const allCache = getProductCache();
   const q = (req.query.q || '').toLowerCase().trim();
+  const showAll = req.query.all === '1';
+  const base = showAll ? allCache : allCache.filter(p => p.published);
+
   const filtered = q
-    ? cache.filter(p => {
+    ? base.filter(p => {
         const tagStr = p.tags.map(t => typeof t === 'string' ? t : (t?.name || '')).join(' ').toLowerCase();
-        return p.title.toLowerCase().includes(q) || p.brief.toLowerCase().includes(q) ||
-               p.type.toLowerCase().includes(q) || tagStr.includes(q);
+        return p.title.toLowerCase().includes(q) || p.handle.toLowerCase().includes(q) ||
+               p.brief.toLowerCase().includes(q) || p.type.toLowerCase().includes(q) || tagStr.includes(q);
       })
-    : cache;
+    : base;
+
+  const pubCount = allCache.filter(p => p.published).length;
 
   const rows = filtered.slice(0, 100).map(p => `<tr>
     <td style="font-size:11px;color:#888">${p.id}</td>
-    <td><strong>${esc(p.title)}</strong></td>
+    <td><strong>${esc(p.title)}</strong>${p.published?'':' <span style="font-size:10px;color:#e65100;background:#fff3e0;padding:1px 5px;border-radius:3px">未發布</span>'}</td>
     <td style="font-size:12px;color:#888;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.brief.slice(0,60))}</td>
     <td style="font-size:12px">${esc(p.type)}</td>
     <td style="font-size:11px;color:#888">${esc(Array.isArray(p.tags) ? p.tags.map(t=>typeof t==='string'?t:(t?.name||'')).join(', ') : '')}</td>
@@ -956,14 +961,18 @@ router.get('/products', requireLogin, (req, res) => {
     <td style="font-size:12px">${p.price ? '$'+p.price : '—'}</td>
   </tr>`).join('') || `<tr><td colspan="7" class="empty">無結果</td></tr>`;
 
+  const toggleAllUrl = `${BASE}/products${q?`?q=${encodeURIComponent(q)}&`:'?'}all=${showAll?'0':'1'}`;
+
   const body = `<div class="page-header">
     <h2>🛍 商品快取 debug</h2>
-    <span style="font-size:12px;color:#999">快取共 ${cache.length} 個商品（顯示前 100 筆）</span>
+    <span style="font-size:12px;color:#999">全部 ${allCache.length} 個 ／ 已發布 ${pubCount} 個（顯示前 100 筆）</span>
     <form method="GET" action="${BASE}/products" style="display:flex;gap:8px;align-items:center;margin-left:auto">
-      <input type="text" name="q" value="${esc(req.query.q||'')}" placeholder="搜尋標題/簡介/類型/標籤…" style="width:220px;margin:0">
+      <input type="hidden" name="all" value="${showAll?'1':'0'}">
+      <input type="text" name="q" value="${esc(req.query.q||'')}" placeholder="搜尋標題/handle/簡介…" style="width:220px;margin:0">
       <button class="btn btn-ghost btn-sm" type="submit">🔍</button>
-      ${q ? `<a href="${BASE}/products" class="btn btn-ghost btn-sm">✕</a>` : ''}
+      ${q ? `<a href="${BASE}/products${showAll?'?all=1':''}" class="btn btn-ghost btn-sm">✕</a>` : ''}
     </form>
+    <a href="${toggleAllUrl}" class="btn btn-sm ${showAll?'btn-primary':'btn-ghost'}" style="margin-left:8px">${showAll?'✅ 含未發布':'包含未發布'}</a>
     <form method="POST" action="${BASE}/products/reload" style="margin-left:8px">
       <button class="btn btn-primary btn-sm" type="submit">🔄 重新載入快取</button>
     </form>

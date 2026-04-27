@@ -33,6 +33,7 @@ function simplify(p) {
     brief: p.brief_text || '',
     type: p.product_type || '',
     tags: p.tags || [],
+    published: !!p.published,
   };
 }
 
@@ -52,8 +53,9 @@ async function loadAllProducts() {
     }
     const batch = await res.json();
     if (!Array.isArray(batch) || !batch.length) break;
-    all.push(...batch.filter(p => p.published));
-    console.log(`[cyberbiz] Loaded page ${page}: ${batch.length} items (published: ${batch.filter(p=>p.published).length})`);
+    all.push(...batch); // include all; filter by published in simplify
+    const pubCount = batch.filter(p => p.published).length;
+    console.log(`[cyberbiz] Loaded page ${page}: ${batch.length} items (published: ${pubCount})`);
     if (batch.length < PER_PAGE) break; // last page reached
     page++;
   }
@@ -81,6 +83,7 @@ async function searchProducts(keyword, limit = 5) {
   const kw = keyword.toLowerCase();
 
   const results = productCache.filter(p => {
+    if (!p.published) return false; // only recommend published products
     const tagStr = p.tags.map(t => typeof t === 'string' ? t : (t?.name || '')).join(' ').toLowerCase();
     return (
       p.title.toLowerCase().includes(kw) ||
