@@ -12,6 +12,7 @@ const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
 const { sendMessage, transferToHuman } = require('./omnichat');
 const { getAIReply, clearHistory } = require('./agent');
+const { getReviewReply } = require('./review');
 const { loadAllProducts } = require('./cyberbiz');
 const adminRouter = require('./admin');
 const db = require('./db');
@@ -101,6 +102,33 @@ app.post(WEBHOOK_PATH, async (req, res) => {
     } catch (err) {
       console.error(`[webhook] Error handling message for room ${roomId}:`, err.message);
     }
+  }
+});
+
+// ── Shopee Review Reply API ────────────────────────
+// POST /api/shopee-review
+// Body: { reviewText, brandId, apiKey }
+// Returns: { reply, templateId, source, needsHuman, reason }
+app.post('/api/shopee-review', async (req, res) => {
+  const { reviewText, brandId, apiKey } = req.body;
+
+  if (!process.env.SHOPEE_API_KEY || apiKey !== process.env.SHOPEE_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (!reviewText || !reviewText.trim()) {
+    return res.status(400).json({ error: 'reviewText is required' });
+  }
+
+  console.log(`[shopee-api] brand=${brandId||'?'} review="${reviewText.slice(0,60)}"`);
+  try {
+    const result = await getReviewReply({
+      reviewText: reviewText.trim(),
+      brandId:    brandId ? parseInt(brandId) : null,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('[shopee-api] error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
