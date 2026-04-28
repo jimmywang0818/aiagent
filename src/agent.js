@@ -222,7 +222,7 @@ const searchTool = {
   functionDeclarations: [
     {
       name: 'web_search',
-      description: '搜尋網路上的最新資訊、新聞、評價、趨勢等',
+      description: '搜尋網路取得相關網址和摘要。若需要完整內容（如商品列表、價格、詳細資料），搜尋後再用 fetch_page 讀取頁面',
       parameters: {
         type: 'OBJECT',
         properties: {
@@ -232,8 +232,48 @@ const searchTool = {
         required: ['query'],
       },
     },
+    {
+      name: 'fetch_page',
+      description: '讀取指定網址的頁面文字內容。適合在 web_search 後，針對需要詳細資料的頁面（商品特價、完整列表、詳細評測等）進一步取得實際內容',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          url: { type: 'STRING', description: '要讀取的完整網址' },
+        },
+        required: ['url'],
+      },
+    },
   ],
 };
+
+async function fetchPageContent(url, maxChars = 5000) {
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LineBot-AI/1.0)' },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return `無法取得頁面（HTTP ${res.status}）`;
+    const html = await res.text();
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+      .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+      .replace(/<header[\s\S]*?<\/header>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/\s+/g, ' ')
+      .trim();
+    console.log(`[ask-api] fetch_page: "${url}" chars=${Math.min(text.length, maxChars)}`);
+    return text.slice(0, maxChars);
+  } catch (err) {
+    console.error('[fetch-page] error:', err.message);
+    return `無法取得頁面內容：${err.message}`;
+  }
+}
 
 async function runWebSearch(query, maxResults = 5) {
   const apiKey = process.env.SERPER_API_KEY;
@@ -284,6 +324,9 @@ async function askAI({ prompt, systemPrompt, model = 'gemini-2.0-flash', enableS
         console.log(`[ask-api] web_search: "${call.args.query}" max=${maxResults}`);
         const results = await runWebSearch(call.args.query, maxResults);
         fnResults.push({ functionResponse: { name: 'web_search', response: { results } } });
+      } else if (call.name === 'fetch_page') {
+        const content = await fetchPageContent(call.args.url);
+        fnResults.push({ functionResponse: { name: 'fetch_page', response: { content } } });
       }
     }
     response = await chat.sendMessage({ message: fnResults });
