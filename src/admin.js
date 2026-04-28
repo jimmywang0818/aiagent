@@ -965,7 +965,7 @@ router.get('/products', requireLogin, (req, res) => {
   const toggleAllUrl = `${BASE}/products${q?`?q=${encodeURIComponent(q)}&`:'?'}all=${showAll?'0':'1'}`;
 
   const body = `<div class="page-header">
-    <h2>🛍 商品快取 debug</h2>
+    <h2>🛍 商品快取</h2>
     <span style="font-size:12px;color:#999">全部 ${allCache.length} 個 ／ 已發布 ${pubCount} 個（顯示前 100 筆）</span>
     <form method="GET" action="${BASE}/products" style="display:flex;gap:8px;align-items:center;margin-left:auto">
       <input type="hidden" name="all" value="${showAll?'1':'0'}">
@@ -1144,15 +1144,30 @@ router.get('/product-info', requireLogin, (req, res) => {
       }).join('')
     : `<tr><td colspan="9" class="empty">尚無資料，請透過下方新增或 CSV 匯入</td></tr>`;
 
+  // Embed full dataset as JSON for live search
+  const allItemsJson = JSON.stringify(db.getProductInfoList({ brandId: brandId || undefined }).map(p => ({
+    id: p.id, code: p.product_code||'', name: p.product_name||'', brand: p.brand_name||'',
+    origin: p.origin||'', price: p.price||'', dosage: p.dosage_form||'',
+    ingr: (p.key_ingredients||p.all_ingredients||'').slice(0,80),
+    cert: p.certifications||'', active: p.active,
+    search: [p.product_name,p.product_code,p.key_ingredients,p.all_ingredients,
+             p.nutrition,p.certifications,p.precautions,p.target_groups,p.keywords,p.notes]
+             .filter(Boolean).join(' ').toLowerCase(),
+  })));
+
   const body = `<div class="page-header">
     <h2>📦 產品資料庫</h2>
-    <span style="font-size:12px;color:#999">AI 優先查詢此 DB 回答成分、營養標示、注意事項等問題（共 ${items.length} 筆）</span>
+    <span id="pi-count" style="font-size:12px;color:#999">共 ${items.length} 筆</span>
   </div>
   ${alert}
   <div class="card" style="margin-bottom:16px;padding:14px 18px">
     ${brandFilter}
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-      ${searchBox}
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="pi-search" type="text" value="${esc(q)}" placeholder="🔍 即時搜尋商品名稱、成分、料號…" style="width:280px;margin:0"
+          oninput="filterTable(this.value)">
+        ${q ? `<button onclick="document.getElementById('pi-search').value='';filterTable('');" class="btn btn-ghost btn-sm">✕</button>` : ''}
+      </div>
       <div style="display:flex;gap:8px">
         <a href="${BASE}/product-info/new" class="btn btn-success btn-sm">＋ 新增產品</a>
         <a href="${BASE}/product-info/import" class="btn btn-primary btn-sm">📥 CSV 匯入</a>
@@ -1161,11 +1176,56 @@ router.get('/product-info', requireLogin, (req, res) => {
     </div>
   </div>
   <div class="card" style="padding:0;overflow:auto">
-    <table>
+    <table id="pi-table">
       <thead><tr><th>料號</th><th>商品名稱</th><th>品牌</th><th>產地</th><th>售價</th><th>關鍵成分（預覽）</th><th>認證</th><th>狀態</th><th>操作</th></tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody id="pi-tbody">${rows}</tbody>
     </table>
-  </div>`;
+  </div>
+
+  <script>
+  const ALL_ITEMS = ${allItemsJson};
+  const BASE_URL_PI = '${BASE}/product-info';
+
+  function renderRows(items) {
+    if (!items.length) {
+      document.getElementById('pi-tbody').innerHTML = '<tr><td colspan="9" class="empty">無符合結果</td></tr>';
+      document.getElementById('pi-count').textContent = '0 筆';
+      return;
+    }
+    document.getElementById('pi-count').textContent = '共 ' + items.length + ' 筆';
+    document.getElementById('pi-tbody').innerHTML = items.map(p => \`<tr>
+      <td style="font-size:11px;color:#888;white-space:nowrap">\${p.code||'—'}</td>
+      <td><a href="\${BASE_URL_PI}/\${p.id}/edit" style="font-weight:600;color:#1a237e;text-decoration:none">\${esc2(p.name)}</a>
+        \${p.dosage ? '<br><span style="font-size:11px;color:#888">'+esc2(p.dosage)+'</span>' : ''}</td>
+      <td style="font-size:12px">\${esc2(p.brand)||'—'}</td>
+      <td style="font-size:12px;color:#666">\${esc2(p.origin)||'—'}</td>
+      <td style="font-size:12px;color:#666">\${p.price?'$'+esc2(p.price):'—'}</td>
+      <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${esc2(p.ingr)}\${p.ingr.length>=80?'…':''}</td>
+      <td style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${esc2(p.cert)}</td>
+      <td><span class="badge \${p.active?'on':'off'}">\${p.active?'啟用':'停用'}</span></td>
+      <td style="white-space:nowrap">
+        <a href="\${BASE_URL_PI}/\${p.id}/edit" class="btn btn-primary btn-sm">編輯</a>
+        <form method="POST" action="\${BASE_URL_PI}/\${p.id}/delete" style="display:inline" onsubmit="return confirm('確定刪除？')">
+          <button class="btn btn-danger btn-sm">刪除</button>
+        </form>
+      </td>
+    </tr>\`).join('');
+  }
+
+  function filterTable(q) {
+    const kw = q.trim().toLowerCase();
+    const filtered = kw ? ALL_ITEMS.filter(p => p.search.includes(kw)) : ALL_ITEMS;
+    renderRows(filtered);
+  }
+
+  function esc2(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // Init with any server-side query
+  const initQ = ${JSON.stringify(q)};
+  if (initQ) filterTable(initQ);
+  </script>`;
 
   res.send(layout('產品資料庫', body, 'product-info'));
 });

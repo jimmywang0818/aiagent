@@ -80,10 +80,16 @@ async function ensureCache() {
 async function searchProducts(keyword, limit = 5) {
   await ensureCache();
 
-  const kw = keyword.toLowerCase();
+  const kw = (keyword || '').trim().toLowerCase();
+  const published = productCache.filter(p => p.published);
 
-  const results = productCache.filter(p => {
-    if (!p.published) return false; // only recommend published products
+  // Empty keyword → return a sample of all published products (browsing / recommendation mode)
+  if (!kw) {
+    console.log(`[cyberbiz] search_products: empty keyword → returning ${Math.min(limit, published.length)} published products`);
+    return published.slice(0, limit);
+  }
+
+  const results = published.filter(p => {
     const tagStr = p.tags.map(t => typeof t === 'string' ? t : (t?.name || '')).join(' ').toLowerCase();
     return (
       p.title.toLowerCase().includes(kw) ||
