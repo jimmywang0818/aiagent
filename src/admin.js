@@ -1071,113 +1071,98 @@ router.post('/reviews/:id/toggle', requireLogin, (req, res) => {
 });
 
 // ── Product Info Knowledge Base ───────────────────
+
+// Helper: build brand selector options HTML
+function brandSelectOptions(brands, selectedId) {
+  return `<option value="">（無品牌）</option>` +
+    brands.map(b => `<option value="${b.id}"${b.id === selectedId ? ' selected' : ''}>${esc(b.name)}</option>`).join('');
+}
+
+// Helper: text field row
+function piField(label, name, val, type = 'text') {
+  if (type === 'textarea') {
+    return `<div style="margin-bottom:10px">
+      <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">${label}</label>
+      <textarea name="${name}" style="min-height:80px;resize:vertical">${esc(val||'')}</textarea></div>`;
+  }
+  return `<div style="margin-bottom:10px">
+    <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">${label}</label>
+    <input type="text" name="${name}" value="${esc(val||'')}"></div>`;
+}
+
 router.get('/product-info', requireLogin, (req, res) => {
-  const brandId  = req.query.brand ? parseInt(req.query.brand) : null;
-  const q        = (req.query.q || '').trim().toLowerCase();
-  const msg      = req.query.msg;
-  const alert    = msg ? `<div class="alert alert-success">${esc(msg)}</div>` : '';
-  const brands   = db.getBrands();
-  let items      = db.getProductInfoList({ brandId: brandId || undefined });
+  const brandId = req.query.brand ? parseInt(req.query.brand) : null;
+  const q       = (req.query.q || '').trim();
+  const msg     = req.query.msg;
+  const alert   = msg ? `<div class="alert alert-success">${esc(msg)}</div>` : '';
+  const brands  = db.getBrands();
+  let items     = db.getProductInfoList({ brandId: brandId || undefined });
 
   if (q) {
+    const kw = q.toLowerCase();
     items = items.filter(p =>
-      (p.product_name||'').toLowerCase().includes(q) ||
-      (p.sku||'').toLowerCase().includes(q) ||
-      (p.ingredients||'').toLowerCase().includes(q) ||
-      (p.nutrition||'').toLowerCase().includes(q) ||
-      (p.certifications||'').toLowerCase().includes(q) ||
-      (p.notes||'').toLowerCase().includes(q)
+      ['product_name','product_code','key_ingredients','all_ingredients','nutrition',
+       'certifications','precautions','target_groups','keywords','notes'].some(f =>
+        (p[f]||'').toLowerCase().includes(kw)
+      )
     );
   }
 
   const brandFilter = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-    <span style="font-size:12px;color:#888;white-space:nowrap;min-width:32px">品牌：</span>
+    <span style="font-size:12px;color:#888;white-space:nowrap">品牌：</span>
     <a href="${BASE}/product-info${q?`?q=${encodeURIComponent(q)}`:''}" class="btn btn-sm ${!brandId?'btn-primary':'btn-ghost'}">全部</a>
     ${brands.map(b=>`<a href="${BASE}/product-info?brand=${b.id}${q?`&q=${encodeURIComponent(q)}`:''}" class="btn btn-sm ${brandId===b.id?'btn-primary':'btn-ghost'}">${esc(b.name)}</a>`).join('')}
   </div>`;
 
   const searchBox = `<form method="GET" action="${BASE}/product-info" style="display:flex;gap:8px;align-items:center">
     ${brandId ? `<input type="hidden" name="brand" value="${brandId}">` : ''}
-    <input type="text" name="q" value="${esc(req.query.q||'')}" placeholder="搜尋商品名稱、成分、SKU…" style="width:260px;margin:0">
-    <button class="btn btn-ghost btn-sm" type="submit">🔍 搜尋</button>
-    ${q ? `<a href="${BASE}/product-info${brandId?`?brand=${brandId}`:''}" class="btn btn-ghost btn-sm">✕ 清除</a>` : ''}
+    <input type="text" name="q" value="${esc(q)}" placeholder="搜尋商品名稱、成分、料號…" style="width:260px;margin:0">
+    <button class="btn btn-ghost btn-sm" type="submit">🔍</button>
+    ${q ? `<a href="${BASE}/product-info${brandId?`?brand=${brandId}`:''}" class="btn btn-ghost btn-sm">✕</a>` : ''}
   </form>`;
 
-  const brandOptions = `<option value="">（全品牌）</option>` +
-    brands.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('');
-
   const rows = items.length
-    ? items.map(p => `<tr>
-        <td style="font-size:11px;color:#888">${p.id}</td>
-        <td><strong>${esc(p.product_name)}</strong>${p.sku?`<br><span style="font-size:11px;color:#aaa">SKU: ${esc(p.sku)}</span>`:''}</td>
-        <td style="font-size:12px;color:#555">${esc(p.brand_name||'—')}</td>
-        <td style="font-size:12px;max-width:180px;white-space:pre-wrap">${esc((p.ingredients||'').slice(0,80))}${(p.ingredients||'').length>80?'…':''}</td>
-        <td style="font-size:12px;max-width:140px;white-space:pre-wrap">${esc((p.nutrition||'').slice(0,60))}${(p.nutrition||'').length>60?'…':''}</td>
-        <td style="font-size:12px">${esc((p.certifications||'').slice(0,50))}</td>
-        <td><span class="badge ${p.active?'on':'off'}">${p.active?'啟用':'停用'}</span></td>
-        <td style="white-space:nowrap">
-          <a href="${BASE}/product-info/${p.id}/edit" class="btn btn-primary btn-sm">編輯</a>
-          <form method="POST" action="${BASE}/product-info/${p.id}/delete" style="display:inline" onsubmit="return confirm('確定刪除「${esc(p.product_name)}」？')">
-            <button class="btn btn-danger btn-sm">刪除</button>
-          </form>
-        </td>
-      </tr>`).join('')
-    : `<tr><td colspan="8" class="empty">尚無資料</td></tr>`;
+    ? items.map(p => {
+        const ingredPreview = (p.key_ingredients||p.all_ingredients||'').slice(0, 60);
+        return `<tr>
+          <td style="font-size:11px;color:#888;white-space:nowrap">${esc(p.product_code||'—')}</td>
+          <td><a href="${BASE}/product-info/${p.id}/edit" style="font-weight:600;color:#1a237e;text-decoration:none">${esc(p.product_name)}</a>
+            ${p.dosage_form?`<br><span style="font-size:11px;color:#888">${esc(p.dosage_form)}</span>`:''}</td>
+          <td style="font-size:12px">${esc(p.brand_name||'—')}</td>
+          <td style="font-size:12px;color:#666">${esc(p.origin||'—')}</td>
+          <td style="font-size:12px;color:#666">${p.price?`$${esc(p.price)}`:'—'}</td>
+          <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ingredPreview)}${ingredPreview.length>=60?'…':''}</td>
+          <td style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.certifications||'')}</td>
+          <td><span class="badge ${p.active?'on':'off'}">${p.active?'啟用':'停用'}</span></td>
+          <td style="white-space:nowrap">
+            <a href="${BASE}/product-info/${p.id}/edit" class="btn btn-primary btn-sm">編輯</a>
+            <form method="POST" action="${BASE}/product-info/${p.id}/delete" style="display:inline" onsubmit="return confirm('確定刪除？')">
+              <button class="btn btn-danger btn-sm">刪除</button>
+            </form>
+          </td>
+        </tr>`;
+      }).join('')
+    : `<tr><td colspan="9" class="empty">尚無資料，請透過下方新增或 CSV 匯入</td></tr>`;
 
   const body = `<div class="page-header">
     <h2>📦 產品資料庫</h2>
-    <span style="font-size:12px;color:#999">AI 優先查詢此資料庫回答成分、營養標示等問題</span>
+    <span style="font-size:12px;color:#999">AI 優先查詢此 DB 回答成分、營養標示、注意事項等問題（共 ${items.length} 筆）</span>
   </div>
   ${alert}
   <div class="card" style="margin-bottom:16px;padding:14px 18px">
     ${brandFilter}
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
       ${searchBox}
-      <span style="font-size:12px;color:#aaa">${items.length} 筆</span>
+      <div style="display:flex;gap:8px">
+        <a href="${BASE}/product-info/new" class="btn btn-success btn-sm">＋ 新增產品</a>
+        <a href="${BASE}/product-info/import" class="btn btn-primary btn-sm">📥 CSV 匯入</a>
+        <a href="${BASE}/product-info/upload/template" class="btn btn-ghost btn-sm">⬇ 下載模板</a>
+      </div>
     </div>
   </div>
-
-  <div class="card">
-    <h3>新增產品資料</h3>
-    <form method="POST" action="${BASE}/product-info">
-      <div class="form-row">
-        <div class="grow"><input type="text" name="product_name" placeholder="商品名稱 *" required></div>
-        <div style="width:160px"><select name="brand_id" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
-          ${brandOptions}
-        </select></div>
-      </div>
-      <div class="form-row">
-        <div class="grow"><input type="text" name="product_url" placeholder="商品網址"></div>
-        <div style="width:160px"><input type="text" name="sku" placeholder="SKU / 貨號"></div>
-      </div>
-      <div class="form-row">
-        <div class="grow"><textarea name="ingredients" placeholder="成分（如：納豆激酶 6000FU、紅麴...）" style="min-height:60px"></textarea></div>
-        <div class="grow"><textarea name="nutrition" placeholder="營養標示（如：每份磷 120mg、鈉 50mg...）" style="min-height:60px"></textarea></div>
-      </div>
-      <div class="form-row">
-        <div class="grow"><input type="text" name="certifications" placeholder="認證（如：衛福部健康食品認證、小綠人標章）"></div>
-        <div class="grow"><input type="text" name="notes" placeholder="備注（如：腎臟病患者請諮詢醫師）"></div>
-      </div>
-      <div class="form-actions"><button class="btn btn-success" type="submit">＋ 新增</button></div>
-    </form>
-  </div>
-
-  <div class="card">
-    <h3>📥 CSV 批量匯入（同名+品牌自動更新）</h3>
-    <p style="font-size:12px;color:#999;margin-bottom:8px">CSV 欄位：<code>brand_id, product_name, product_url, sku, ingredients, nutrition, certifications, notes</code>（UTF-8）</p>
-    <p style="font-size:12px;color:#aaa;margin-bottom:12px">brand_id 填品牌 ID 數字，不確定可留空（AI 仍會查詢）</p>
-    <form method="POST" action="${BASE}/product-info/upload" enctype="multipart/form-data">
-      <input type="file" name="csv" accept=".csv" required>
-      <div class="form-actions">
-        <button class="btn btn-primary" type="submit">上傳匯入</button>
-        <a href="${BASE}/product-info/upload/template" class="btn btn-ghost">下載 CSV 模板</a>
-      </div>
-    </form>
-  </div>
-
-  <div class="card" style="padding:0;overflow:hidden">
+  <div class="card" style="padding:0;overflow:auto">
     <table>
-      <thead><tr><th>ID</th><th>商品名稱</th><th>品牌</th><th>成分</th><th>營養標示</th><th>認證</th><th>狀態</th><th>操作</th></tr></thead>
+      <thead><tr><th>料號</th><th>商品名稱</th><th>品牌</th><th>產地</th><th>售價</th><th>關鍵成分（預覽）</th><th>認證</th><th>狀態</th><th>操作</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`;
@@ -1185,93 +1170,91 @@ router.get('/product-info', requireLogin, (req, res) => {
   res.send(layout('產品資料庫', body, 'product-info'));
 });
 
-router.post('/product-info', requireLogin, (req, res) => {
-  const { brand_id, product_name, product_url, sku, ingredients, nutrition, certifications, notes } = req.body;
-  if (!product_name || !product_name.trim()) return res.redirect(`${BASE}/product-info`);
-  db.upsertProductInfo({
-    brandId:        brand_id ? parseInt(brand_id) : null,
-    productName:    product_name.trim(),
-    productUrl:     product_url?.trim() || null,
-    sku:            sku?.trim() || null,
-    ingredients:    ingredients?.trim() || null,
-    nutrition:      nutrition?.trim() || null,
-    certifications: certifications?.trim() || null,
-    notes:          notes?.trim() || null,
-  });
-  res.redirect(`${BASE}/product-info?msg=${encodeURIComponent('已新增／更新產品資料')}`);
+// ── New product form ──────────────────────────────
+router.get('/product-info/new', requireLogin, (req, res) => {
+  const brands = db.getBrands();
+  res.send(layout('新增產品', productInfoForm({}, brands, `${BASE}/product-info`, '新增產品資料'), 'product-info'));
 });
 
+router.post('/product-info', requireLogin, (req, res) => {
+  const name = (req.body.product_name || '').trim();
+  if (!name) return res.redirect(`${BASE}/product-info/new`);
+  db.upsertProductInfo(extractProductFields(req.body));
+  res.redirect(`${BASE}/product-info?msg=${encodeURIComponent('已新增產品：' + name)}`);
+});
+
+// ── Edit product ──────────────────────────────────
 router.get('/product-info/:id/edit', requireLogin, (req, res) => {
   const item = db.getProductInfoById(req.params.id);
   if (!item) return res.redirect(`${BASE}/product-info`);
   const brands = db.getBrands();
-  const brandOptions = `<option value="">（無品牌）</option>` +
-    brands.map(b => `<option value="${b.id}"${b.id===item.brand_id?' selected':''}>${esc(b.name)}</option>`).join('');
-
-  const body = `<div class="page-header">
-    <a href="${BASE}/product-info" style="color:#1a237e;font-size:13px">← 返回列表</a>
-  </div>
-  <div class="card" style="max-width:720px">
-    <h3>編輯產品資料 #${item.id}</h3>
-    <form method="POST" action="${BASE}/product-info/${item.id}/edit">
-      <div class="form-row">
-        <div class="grow"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">商品名稱 *</label>
-          <input type="text" name="product_name" value="${esc(item.product_name)}" required></div>
-        <div style="width:160px"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">品牌</label>
-          <select name="brand_id" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">${brandOptions}</select></div>
-      </div>
-      <div class="form-row">
-        <div class="grow"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">商品網址</label>
-          <input type="text" name="product_url" value="${esc(item.product_url||'')}"></div>
-        <div style="width:160px"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">SKU / 貨號</label>
-          <input type="text" name="sku" value="${esc(item.sku||'')}"></div>
-      </div>
-      <div class="form-row">
-        <div class="grow"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">成分</label>
-          <textarea name="ingredients" style="min-height:80px">${esc(item.ingredients||'')}</textarea></div>
-        <div class="grow"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">營養標示</label>
-          <textarea name="nutrition" style="min-height:80px">${esc(item.nutrition||'')}</textarea></div>
-      </div>
-      <div class="form-row">
-        <div class="grow"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">認證</label>
-          <input type="text" name="certifications" value="${esc(item.certifications||'')}"></div>
-        <div class="grow"><label style="font-size:12px;color:#888;display:block;margin-bottom:4px">備注</label>
-          <input type="text" name="notes" value="${esc(item.notes||'')}"></div>
-      </div>
-      <div style="margin-top:10px">
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px">
-          <input type="checkbox" name="active" value="1" ${item.active?'checked':''}> 啟用（AI 可查詢）
-        </label>
-      </div>
-      <div class="form-actions" style="margin-top:14px">
-        <button class="btn btn-primary" type="submit">儲存</button>
-        <a href="${BASE}/product-info" class="btn btn-ghost">取消</a>
-      </div>
-    </form>
-  </div>`;
-  res.send(layout('編輯產品資料', body, 'product-info'));
+  res.send(layout(`編輯：${item.product_name}`, productInfoForm(item, brands, `${BASE}/product-info/${item.id}/edit`, `編輯產品 #${item.id}`, true), 'product-info'));
 });
 
 router.post('/product-info/:id/edit', requireLogin, (req, res) => {
-  const { brand_id, product_name, product_url, sku, ingredients, nutrition, certifications, notes, active } = req.body;
-  if (!product_name || !product_name.trim()) return res.redirect(`${BASE}/product-info`);
-  db.updateProductInfo(req.params.id, {
-    brand_id:       brand_id ? parseInt(brand_id) : null,
-    product_name:   product_name.trim(),
-    product_url:    product_url?.trim() || null,
-    sku:            sku?.trim() || null,
-    ingredients:    ingredients?.trim() || null,
-    nutrition:      nutrition?.trim() || null,
-    certifications: certifications?.trim() || null,
-    notes:          notes?.trim() || null,
-    active:         active === '1' ? 1 : 0,
-  });
-  res.redirect(`${BASE}/product-info?msg=${encodeURIComponent('已儲存')}`);
+  const name = (req.body.product_name || '').trim();
+  if (!name) return res.redirect(`${BASE}/product-info`);
+  db.updateProductInfo(req.params.id, extractProductFields(req.body));
+  res.redirect(`${BASE}/product-info?msg=${encodeURIComponent('已儲存：' + name)}`);
 });
 
 router.post('/product-info/:id/delete', requireLogin, (req, res) => {
   db.deleteProductInfo(req.params.id);
   res.redirect(`${BASE}/product-info?msg=${encodeURIComponent('已刪除')}`);
+});
+
+// ── CSV Import page ───────────────────────────────
+router.get('/product-info/import', requireLogin, (req, res) => {
+  const msg   = req.query.msg;
+  const alert = msg ? `<div class="alert alert-success">${esc(msg)}</div>` : '';
+  const body  = `<div class="page-header">
+    <a href="${BASE}/product-info" style="color:#1a237e;font-size:13px">← 返回列表</a>
+    <h2 style="margin-left:8px">📥 CSV 批量匯入</h2>
+  </div>
+  ${alert}
+  <div class="card" style="max-width:720px">
+    <h3>匯入說明</h3>
+    <p style="font-size:13px;color:#555;margin-bottom:12px">同品牌 + 同商品名稱的資料會自動更新（upsert），不會重複新增。</p>
+    <p style="font-size:13px;color:#555;margin-bottom:6px">CSV 必填欄位：<code>product_name</code></p>
+    <p style="font-size:13px;color:#555;margin-bottom:16px">其餘欄位留空即可，只填有資料的欄位：</p>
+    <div style="background:#f9f9f9;border:1px solid #eee;border-radius:6px;padding:12px;font-size:12px;line-height:1.8;margin-bottom:16px">
+      <strong>完整欄位清單：</strong><br>
+      <code>brand_id</code> — 品牌 ID（數字，留空則不指定品牌）<br>
+      <code>product_code</code> — 品號／料號（如 <code>1021060101</code>）<br>
+      <code>product_name</code> — 商品名稱 ★必填<br>
+      <code>product_url</code> — 商品網址<br>
+      <code>dosage_form</code> — 劑型（植物膠囊、粉包、軟膠囊…）<br>
+      <code>spec</code> — 規格（如 <code>0.6公克/顆，30顆/袋</code>）<br>
+      <code>shelf_life</code> — 保存期限<br>
+      <code>origin</code> — 產地<br>
+      <code>dietary</code> — 葷素<br>
+      <code>price</code> — 售價（數字）<br>
+      <code>key_ingredients</code> — 關鍵成分（每份），AI 優先使用<br>
+      <code>all_ingredients</code> — 產品全成分<br>
+      <code>nutrition</code> — 營養標示<br>
+      <code>certifications</code> — 認證（衛福部健康食品認證…）<br>
+      <code>precautions</code> — 注意事項<br>
+      <code>usage_method</code> — 食用方式<br>
+      <code>target_groups</code> — 適合族群／補充說明<br>
+      <code>supplement_timing</code> — 建議補充時段（如 <code>早上,晚上,飯後</code>）<br>
+      <code>marketing_copy</code> — 銷售賣點<br>
+      <code>keywords</code> — 關鍵字（逗號分隔）<br>
+      <code>faq_public</code> — 公開 FAQ<br>
+      <code>faq_internal</code> — 客服內部 QA<br>
+      <code>notes</code> — 備注
+    </div>
+    <form method="POST" action="${BASE}/product-info/upload" enctype="multipart/form-data">
+      <div class="upload-area" style="margin-bottom:14px">
+        <input type="file" name="csv" accept=".csv" required style="width:auto">
+        <p style="font-size:12px;color:#aaa;margin-top:8px">UTF-8 或 UTF-8 BOM 編碼，最大 2MB</p>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">上傳匯入</button>
+        <a href="${BASE}/product-info/upload/template" class="btn btn-ghost">⬇ 下載 CSV 模板</a>
+      </div>
+    </form>
+  </div>`;
+  res.send(layout('CSV 匯入', body, 'product-info'));
 });
 
 router.post('/product-info/upload', requireLogin, upload.single('csv'), (req, res) => {
@@ -1280,27 +1263,135 @@ router.post('/product-info/upload', requireLogin, upload.single('csv'), (req, re
   rows.forEach(r => {
     const name = (r.product_name || '').trim();
     if (!name) { skip++; return; }
-    const { action } = db.upsertProductInfo({
-      brandId:        r.brand_id ? parseInt(r.brand_id) : null,
-      productName:    name,
-      productUrl:     r.product_url?.trim() || null,
-      sku:            r.sku?.trim() || null,
-      ingredients:    r.ingredients?.trim() || null,
-      nutrition:      r.nutrition?.trim() || null,
-      certifications: r.certifications?.trim() || null,
-      notes:          r.notes?.trim() || null,
-    });
+    const { action } = db.upsertProductInfo(extractProductFields(r));
     action === 'inserted' ? ins++ : upd++;
   });
   const msg = `匯入完成：新增 ${ins} 筆，更新 ${upd} 筆${skip ? `，略過 ${skip} 筆（無商品名）` : ''}`;
-  res.redirect(`${BASE}/product-info?msg=${encodeURIComponent(msg)}`);
+  res.redirect(`${BASE}/product-info/import?msg=${encodeURIComponent(msg)}`);
 });
 
 router.get('/product-info/upload/template', requireLogin, (req, res) => {
+  const header = [
+    'brand_id','product_code','product_name','product_url','dosage_form','spec',
+    'shelf_life','origin','dietary','price','key_ingredients','all_ingredients',
+    'nutrition','certifications','precautions','usage_method','target_groups',
+    'supplement_timing','marketing_copy','keywords','faq_public','faq_internal','notes',
+  ].join(',');
+  const example = [
+    '7','1021060101','【達摩本草】戰神瑪卡膠囊(30顆)',
+    'https://www.damokampo.com/products/maca',
+    '植物膠囊','0.6公克/顆，30顆/袋','3年','台灣','全素','490',
+    '秘魯黑瑪卡 300mg、精胺酸 200mg、鋅 5mg',
+    '瑪卡粉末(秘魯)、L-精胺酸、葡萄糖酸鋅、植物纖維素',
+    '每份(2顆)：熱量 5kcal、蛋白質 0.5g、鈉 0mg',
+    '衛福部健康食品認證(小綠人)',
+    '1.孕婦、哺乳婦女請勿食用。2.兒童請遠離。3.請依建議量食用勿過量。',
+    '每日建議2顆，飯後搭配250ml水服用',
+    '成年男性、運動族群、疲勞族群',
+    '早上,晚上','瑪卡|精胺酸|男性活力|補充精力','瑪卡,精胺酸,男性,活力,疲勞',
+    '','','腎臟疾病患者請諮詢醫師',
+  ].map(v => v.includes(',') || v.includes('\n') || v.includes('"') ? `"${v.replace(/"/g,'""')}"` : v).join(',');
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="product-info-template.csv"');
-  res.send('﻿' + 'brand_id,product_name,product_url,sku,ingredients,nutrition,certifications,notes\n' +
-    '7,御用 Comfort 納豆激酶 6000FU,https://example.com/p/natto,NK-6000,"納豆激酶 6000FU、紅麴、輔酶 Q10","每份磷 80mg、鈉 20mg","衛福部健康食品認證","腎臟病患者請諮詢醫師後服用"\n');
+  res.send('﻿' + header + '\n' + example + '\n');
 });
+
+// ── Shared helpers for product form ──────────────
+function extractProductFields(body) {
+  const s = f => (body[f] || '').trim() || null;
+  return {
+    brand_id:          body.brand_id ? parseInt(body.brand_id) : null,
+    product_code:      s('product_code'),
+    product_name:      s('product_name') || '',
+    product_url:       s('product_url'),
+    dosage_form:       s('dosage_form'),
+    spec:              s('spec'),
+    shelf_life:        s('shelf_life'),
+    origin:            s('origin'),
+    dietary:           s('dietary'),
+    price:             s('price'),
+    key_ingredients:   s('key_ingredients'),
+    all_ingredients:   s('all_ingredients'),
+    nutrition:         s('nutrition'),
+    certifications:    s('certifications'),
+    precautions:       s('precautions'),
+    usage_method:      s('usage_method'),
+    target_groups:     s('target_groups'),
+    supplement_timing: s('supplement_timing'),
+    marketing_copy:    s('marketing_copy'),
+    keywords:          s('keywords'),
+    faq_public:        s('faq_public'),
+    faq_internal:      s('faq_internal'),
+    notes:             s('notes'),
+    active:            body.active === '1' ? 1 : (body.active === undefined ? 1 : 0),
+  };
+}
+
+function productInfoForm(item, brands, action, title, showActive = false) {
+  const v = item || {};
+  const bOpts = brandSelectOptions(brands, v.brand_id);
+  const f  = (lbl, name, type='text') => piField(lbl, name, v[name], type);
+  const fa = showActive ? `<div style="margin:12px 0">
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+      <input type="checkbox" name="active" value="1" ${v.active!==0?'checked':''}> 啟用（AI 可查詢）
+    </label></div>` : '';
+
+  return `<div class="page-header">
+    <a href="${BASE}/product-info" style="color:#1a237e;font-size:13px">← 返回列表</a>
+  </div>
+  <form method="POST" action="${action}" style="max-width:860px">
+    <div class="card">
+      <h3>🏷 基本資訊</h3>
+      <div class="form-row">
+        <div class="grow">${piField('商品名稱 ★必填', 'product_name')}</div>
+        <div style="width:180px">
+          <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">品牌</label>
+          <select name="brand_id" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">${bOpts}</select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div style="width:180px">${piField('品號／料號', 'product_code')}</div>
+        <div class="grow">${piField('商品網址', 'product_url')}</div>
+      </div>
+      <div class="form-row">
+        <div style="width:180px">${piField('劑型', 'dosage_form')}</div>
+        <div style="width:240px">${piField('規格（每份份量）', 'spec')}</div>
+        <div style="width:160px">${piField('保存期限', 'shelf_life')}</div>
+        <div style="width:120px">${piField('產地', 'origin')}</div>
+        <div style="width:120px">${piField('葷素', 'dietary')}</div>
+        <div style="width:100px">${piField('售價', 'price')}</div>
+      </div>
+      <div class="form-row">
+        <div class="grow">${piField('認證', 'certifications')}</div>
+        <div class="grow">${piField('建議補充時段（如：早上,晚上,飯後）', 'supplement_timing')}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>🧪 成分 ＆ 營養標示</h3>
+      ${f('關鍵成分（每份）— AI 優先用此欄位回答成分問題', 'key_ingredients', 'textarea')}
+      ${f('產品全成分', 'all_ingredients', 'textarea')}
+      ${f('營養標示（如：每份磷 80mg、鈉 20mg）', 'nutrition', 'textarea')}
+      ${f('注意事項', 'precautions', 'textarea')}
+      ${f('食用方式', 'usage_method', 'textarea')}
+      ${f('適合族群／補充說明', 'target_groups')}
+    </div>
+
+    <div class="card">
+      <h3>💬 客服 ＆ 行銷資料</h3>
+      ${f('關鍵字（逗號分隔，用於 AI 搜尋命中）', 'keywords')}
+      ${f('銷售賣點（話術）', 'marketing_copy', 'textarea')}
+      ${f('公開 FAQ', 'faq_public', 'textarea')}
+      ${f('客服內部 QA（非公開）', 'faq_internal', 'textarea')}
+      ${f('備注', 'notes')}
+      ${fa}
+    </div>
+
+    <div class="form-actions" style="padding:0 0 20px">
+      <button class="btn btn-primary" type="submit">💾 儲存</button>
+      <a href="${BASE}/product-info" class="btn btn-ghost">取消</a>
+    </div>
+  </form>`;
+}
 
 module.exports = router;

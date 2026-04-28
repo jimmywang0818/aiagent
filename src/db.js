@@ -280,51 +280,131 @@ function toggleReviewTemplate(id, active) {
 }
 
 // ── Product Info Knowledge Base ───────────────────
+// Migration: if old schema (has 'sku' col but not 'product_code'), rename and recreate
+{
+  const piCols = db.prepare(`PRAGMA table_info(product_info)`).all().map(c => c.name);
+  if (piCols.length > 0 && piCols.includes('sku') && !piCols.includes('product_code')) {
+    console.log('[db] Migrating product_info to new schema…');
+    db.exec(`ALTER TABLE product_info RENAME TO product_info_v1_bak`);
+  }
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS product_info (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    brand_id       INTEGER REFERENCES brands(id),
-    product_name   TEXT NOT NULL,
-    product_url    TEXT,
-    sku            TEXT,
-    ingredients    TEXT,
-    nutrition      TEXT,
-    certifications TEXT,
-    notes          TEXT,
-    active         INTEGER NOT NULL DEFAULT 1,
-    created_at     TEXT NOT NULL DEFAULT (datetime('now','+8 hours')),
-    updated_at     TEXT NOT NULL DEFAULT (datetime('now','+8 hours'))
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    brand_id          INTEGER REFERENCES brands(id),
+    product_code      TEXT,
+    product_name      TEXT NOT NULL,
+    product_url       TEXT,
+    dosage_form       TEXT,
+    spec              TEXT,
+    shelf_life        TEXT,
+    origin            TEXT,
+    dietary           TEXT,
+    price             TEXT,
+    key_ingredients   TEXT,
+    all_ingredients   TEXT,
+    nutrition         TEXT,
+    certifications    TEXT,
+    precautions       TEXT,
+    usage_method      TEXT,
+    target_groups     TEXT,
+    supplement_timing TEXT,
+    marketing_copy    TEXT,
+    keywords          TEXT,
+    faq_public        TEXT,
+    faq_internal      TEXT,
+    notes             TEXT,
+    active            INTEGER NOT NULL DEFAULT 1,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now','+8 hours')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now','+8 hours'))
   );
 `);
 
+// Clean up migration backup if it exists
+try { db.exec(`DROP TABLE IF EXISTS product_info_v1_bak`); } catch (_) {}
+
 function getProductInfoList({ brandId } = {}) {
-  if (brandId) return db.prepare('SELECT p.*,b.name as brand_name FROM product_info p LEFT JOIN brands b ON p.brand_id=b.id WHERE p.brand_id=? ORDER BY p.id DESC').all(brandId);
-  return db.prepare('SELECT p.*,b.name as brand_name FROM product_info p LEFT JOIN brands b ON p.brand_id=b.id ORDER BY p.id DESC').all();
+  if (brandId) {
+    return db.prepare(
+      'SELECT p.*,b.name as brand_name FROM product_info p LEFT JOIN brands b ON p.brand_id=b.id WHERE p.brand_id=? ORDER BY p.product_name'
+    ).all(brandId);
+  }
+  return db.prepare(
+    'SELECT p.*,b.name as brand_name FROM product_info p LEFT JOIN brands b ON p.brand_id=b.id ORDER BY p.product_name'
+  ).all();
 }
+
 function getProductInfoById(id) {
   return db.prepare('SELECT * FROM product_info WHERE id=?').get(id);
 }
+
 function searchProductInfo(keyword) {
   const kw = `%${keyword}%`;
-  return db.prepare(`SELECT * FROM product_info WHERE active=1 AND (
-    product_name LIKE ? OR ingredients LIKE ? OR nutrition LIKE ? OR certifications LIKE ? OR notes LIKE ?
-  ) ORDER BY id`).all(kw, kw, kw, kw, kw);
+  return db.prepare(`
+    SELECT * FROM product_info WHERE active=1 AND (
+      product_name      LIKE ? OR
+      product_code      LIKE ? OR
+      key_ingredients   LIKE ? OR
+      all_ingredients   LIKE ? OR
+      nutrition         LIKE ? OR
+      certifications    LIKE ? OR
+      precautions       LIKE ? OR
+      target_groups     LIKE ? OR
+      keywords          LIKE ? OR
+      notes             LIKE ?
+    ) ORDER BY product_name
+  `).all(kw, kw, kw, kw, kw, kw, kw, kw, kw, kw);
 }
-function upsertProductInfo({ brandId, productName, productUrl, sku, ingredients, nutrition, certifications, notes }) {
-  const existing = db.prepare('SELECT id FROM product_info WHERE brand_id IS ? AND product_name=?').get(brandId ?? null, productName);
+
+function upsertProductInfo(d) {
+  const bId = d.brand_id ? parseInt(d.brand_id) : null;
+  const name = (d.product_name || '').trim();
+  const existing = db.prepare('SELECT id FROM product_info WHERE brand_id IS ? AND product_name=?').get(bId, name);
+  const vals = [
+    d.product_url||null, d.product_code||null, d.dosage_form||null, d.spec||null,
+    d.shelf_life||null, d.origin||null, d.dietary||null, d.price||null,
+    d.key_ingredients||null, d.all_ingredients||null, d.nutrition||null,
+    d.certifications||null, d.precautions||null, d.usage_method||null,
+    d.target_groups||null, d.supplement_timing||null, d.marketing_copy||null,
+    d.keywords||null, d.faq_public||null, d.faq_internal||null, d.notes||null,
+  ];
   if (existing) {
-    db.prepare(`UPDATE product_info SET product_url=?,sku=?,ingredients=?,nutrition=?,certifications=?,notes=?,updated_at=datetime('now','+8 hours') WHERE id=?`)
-      .run(productUrl||null, sku||null, ingredients||null, nutrition||null, certifications||null, notes||null, existing.id);
+    db.prepare(`UPDATE product_info SET
+      product_url=?,product_code=?,dosage_form=?,spec=?,shelf_life=?,origin=?,dietary=?,price=?,
+      key_ingredients=?,all_ingredients=?,nutrition=?,certifications=?,precautions=?,usage_method=?,
+      target_groups=?,supplement_timing=?,marketing_copy=?,keywords=?,faq_public=?,faq_internal=?,
+      notes=?,updated_at=datetime('now','+8 hours') WHERE id=?`
+    ).run(...vals, existing.id);
     return { action: 'updated', id: existing.id };
   }
-  const r = db.prepare(`INSERT INTO product_info (brand_id,product_name,product_url,sku,ingredients,nutrition,certifications,notes) VALUES (?,?,?,?,?,?,?,?)`)
-    .run(brandId ?? null, productName, productUrl||null, sku||null, ingredients||null, nutrition||null, certifications||null, notes||null);
+  const r = db.prepare(`INSERT INTO product_info (
+    brand_id,product_name,product_url,product_code,dosage_form,spec,shelf_life,origin,dietary,price,
+    key_ingredients,all_ingredients,nutrition,certifications,precautions,usage_method,
+    target_groups,supplement_timing,marketing_copy,keywords,faq_public,faq_internal,notes
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).run(bId, name, ...vals);
   return { action: 'inserted', id: r.lastInsertRowid };
 }
+
 function updateProductInfo(id, d) {
-  return db.prepare(`UPDATE product_info SET brand_id=?,product_name=?,product_url=?,sku=?,ingredients=?,nutrition=?,certifications=?,notes=?,active=?,updated_at=datetime('now','+8 hours') WHERE id=?`)
-    .run(d.brand_id||null, d.product_name, d.product_url||null, d.sku||null, d.ingredients||null, d.nutrition||null, d.certifications||null, d.notes||null, d.active??1, id);
+  return db.prepare(`UPDATE product_info SET
+    brand_id=?,product_name=?,product_url=?,product_code=?,dosage_form=?,spec=?,shelf_life=?,
+    origin=?,dietary=?,price=?,key_ingredients=?,all_ingredients=?,nutrition=?,certifications=?,
+    precautions=?,usage_method=?,target_groups=?,supplement_timing=?,marketing_copy=?,
+    keywords=?,faq_public=?,faq_internal=?,notes=?,active=?,
+    updated_at=datetime('now','+8 hours') WHERE id=?`
+  ).run(
+    d.brand_id||null, d.product_name, d.product_url||null, d.product_code||null,
+    d.dosage_form||null, d.spec||null, d.shelf_life||null, d.origin||null,
+    d.dietary||null, d.price||null, d.key_ingredients||null, d.all_ingredients||null,
+    d.nutrition||null, d.certifications||null, d.precautions||null, d.usage_method||null,
+    d.target_groups||null, d.supplement_timing||null, d.marketing_copy||null,
+    d.keywords||null, d.faq_public||null, d.faq_internal||null, d.notes||null,
+    d.active ?? 1, id
+  );
 }
+
 function deleteProductInfo(id) { return db.prepare('DELETE FROM product_info WHERE id=?').run(id); }
 
 // ── Conversation Logs ─────────────────────────────
