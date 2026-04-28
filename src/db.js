@@ -287,6 +287,11 @@ function toggleReviewTemplate(id, active) {
     console.log('[db] Migrating product_info to new schema…');
     db.exec(`ALTER TABLE product_info RENAME TO product_info_v1_bak`);
   }
+  // Add priority col if not present (migration for existing installations)
+  if (piCols.length > 0 && !piCols.includes('priority')) {
+    console.log('[db] Adding priority column to product_info…');
+    db.exec(`ALTER TABLE product_info ADD COLUMN priority INTEGER NOT NULL DEFAULT 999`);
+  }
 }
 
 db.exec(`
@@ -315,6 +320,7 @@ db.exec(`
     faq_public        TEXT,
     faq_internal      TEXT,
     notes             TEXT,
+    priority          INTEGER NOT NULL DEFAULT 999,
     active            INTEGER NOT NULL DEFAULT 1,
     created_at        TEXT NOT NULL DEFAULT (datetime('now','+8 hours')),
     updated_at        TEXT NOT NULL DEFAULT (datetime('now','+8 hours'))
@@ -327,11 +333,11 @@ try { db.exec(`DROP TABLE IF EXISTS product_info_v1_bak`); } catch (_) {}
 function getProductInfoList({ brandId } = {}) {
   if (brandId) {
     return db.prepare(
-      'SELECT p.*,b.name as brand_name FROM product_info p LEFT JOIN brands b ON p.brand_id=b.id WHERE p.brand_id=? ORDER BY p.product_name'
+      'SELECT p.*,b.name as brand_name FROM product_info p LEFT JOIN brands b ON p.brand_id=b.id WHERE p.brand_id=? ORDER BY p.priority ASC, p.product_name'
     ).all(brandId);
   }
   return db.prepare(
-    'SELECT p.*,b.name as brand_name FROM product_info p LEFT JOIN brands b ON p.brand_id=b.id ORDER BY p.product_name'
+    'SELECT p.*,b.name as brand_name FROM product_info p LEFT JOIN brands b ON p.brand_id=b.id ORDER BY p.priority ASC, p.product_name'
   ).all();
 }
 
@@ -353,7 +359,7 @@ function searchProductInfo(keyword) {
       target_groups     LIKE ? OR
       keywords          LIKE ? OR
       notes             LIKE ?
-    ) ORDER BY product_name
+    ) ORDER BY priority ASC, product_name
   `).all(kw, kw, kw, kw, kw, kw, kw, kw, kw, kw);
 }
 
@@ -361,28 +367,29 @@ function upsertProductInfo(d) {
   const bId = d.brand_id ? parseInt(d.brand_id) : null;
   const name = (d.product_name || '').trim();
   const existing = db.prepare('SELECT id FROM product_info WHERE brand_id IS ? AND product_name=?').get(bId, name);
+  const pri = d.priority != null ? parseInt(d.priority) : 999;
   const vals = [
     d.product_url||null, d.product_code||null, d.dosage_form||null, d.spec||null,
     d.shelf_life||null, d.origin||null, d.dietary||null, d.price||null,
     d.key_ingredients||null, d.all_ingredients||null, d.nutrition||null,
     d.certifications||null, d.precautions||null, d.usage_method||null,
     d.target_groups||null, d.supplement_timing||null, d.marketing_copy||null,
-    d.keywords||null, d.faq_public||null, d.faq_internal||null, d.notes||null,
+    d.keywords||null, d.faq_public||null, d.faq_internal||null, d.notes||null, pri,
   ];
   if (existing) {
     db.prepare(`UPDATE product_info SET
       product_url=?,product_code=?,dosage_form=?,spec=?,shelf_life=?,origin=?,dietary=?,price=?,
       key_ingredients=?,all_ingredients=?,nutrition=?,certifications=?,precautions=?,usage_method=?,
       target_groups=?,supplement_timing=?,marketing_copy=?,keywords=?,faq_public=?,faq_internal=?,
-      notes=?,updated_at=datetime('now','+8 hours') WHERE id=?`
+      notes=?,priority=?,updated_at=datetime('now','+8 hours') WHERE id=?`
     ).run(...vals, existing.id);
     return { action: 'updated', id: existing.id };
   }
   const r = db.prepare(`INSERT INTO product_info (
     brand_id,product_name,product_url,product_code,dosage_form,spec,shelf_life,origin,dietary,price,
     key_ingredients,all_ingredients,nutrition,certifications,precautions,usage_method,
-    target_groups,supplement_timing,marketing_copy,keywords,faq_public,faq_internal,notes
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    target_groups,supplement_timing,marketing_copy,keywords,faq_public,faq_internal,notes,priority
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(bId, name, ...vals);
   return { action: 'inserted', id: r.lastInsertRowid };
 }
@@ -392,7 +399,7 @@ function updateProductInfo(id, d) {
     brand_id=?,product_name=?,product_url=?,product_code=?,dosage_form=?,spec=?,shelf_life=?,
     origin=?,dietary=?,price=?,key_ingredients=?,all_ingredients=?,nutrition=?,certifications=?,
     precautions=?,usage_method=?,target_groups=?,supplement_timing=?,marketing_copy=?,
-    keywords=?,faq_public=?,faq_internal=?,notes=?,active=?,
+    keywords=?,faq_public=?,faq_internal=?,notes=?,priority=?,active=?,
     updated_at=datetime('now','+8 hours') WHERE id=?`
   ).run(
     d.brand_id||null, d.product_name, d.product_url||null, d.product_code||null,
@@ -401,7 +408,7 @@ function updateProductInfo(id, d) {
     d.nutrition||null, d.certifications||null, d.precautions||null, d.usage_method||null,
     d.target_groups||null, d.supplement_timing||null, d.marketing_copy||null,
     d.keywords||null, d.faq_public||null, d.faq_internal||null, d.notes||null,
-    d.active ?? 1, id
+    d.priority ?? 999, d.active ?? 1, id
   );
 }
 

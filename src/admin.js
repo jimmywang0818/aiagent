@@ -1124,7 +1124,9 @@ router.get('/product-info', requireLogin, (req, res) => {
   const rows = items.length
     ? items.map(p => {
         const ingredPreview = (p.key_ingredients||p.all_ingredients||'').slice(0, 60);
+        const priDisplay = (p.priority < 999) ? `<span style="background:#e8eaf6;color:#3f51b5;font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px">${p.priority}</span>` : `<span style="color:#ddd;font-size:11px">—</span>`;
         return `<tr>
+          <td style="text-align:center">${priDisplay}</td>
           <td style="font-size:11px;color:#888;white-space:nowrap">${esc(p.product_code||'—')}</td>
           <td><a href="${BASE}/product-info/${p.id}/edit" style="font-weight:600;color:#1a237e;text-decoration:none">${esc(p.product_name)}</a>
             ${p.dosage_form?`<br><span style="font-size:11px;color:#888">${esc(p.dosage_form)}</span>`:''}</td>
@@ -1149,7 +1151,7 @@ router.get('/product-info', requireLogin, (req, res) => {
     id: p.id, code: p.product_code||'', name: p.product_name||'', brand: p.brand_name||'',
     origin: p.origin||'', price: p.price||'', dosage: p.dosage_form||'',
     ingr: (p.key_ingredients||p.all_ingredients||'').slice(0,80),
-    cert: p.certifications||'', active: p.active,
+    cert: p.certifications||'', active: p.active, priority: p.priority ?? 999,
     search: [p.product_name,p.product_code,p.key_ingredients,p.all_ingredients,
              p.nutrition,p.certifications,p.precautions,p.target_groups,p.keywords,p.notes]
              .filter(Boolean).join(' ').toLowerCase(),
@@ -1177,7 +1179,7 @@ router.get('/product-info', requireLogin, (req, res) => {
   </div>
   <div class="card" style="padding:0;overflow:auto">
     <table id="pi-table">
-      <thead><tr><th>料號</th><th>商品名稱</th><th>品牌</th><th>產地</th><th>售價</th><th>關鍵成分（預覽）</th><th>認證</th><th>狀態</th><th>操作</th></tr></thead>
+      <thead><tr><th title="推薦優先順序，數字越小越優先">排序</th><th>料號</th><th>商品名稱</th><th>品牌</th><th>產地</th><th>售價</th><th>關鍵成分（預覽）</th><th>認證</th><th>狀態</th><th>操作</th></tr></thead>
       <tbody id="pi-tbody">${rows}</tbody>
     </table>
   </div>
@@ -1193,7 +1195,12 @@ router.get('/product-info', requireLogin, (req, res) => {
       return;
     }
     document.getElementById('pi-count').textContent = '共 ' + items.length + ' 筆';
-    document.getElementById('pi-tbody').innerHTML = items.map(p => \`<tr>
+    document.getElementById('pi-tbody').innerHTML = items.map(p => {
+      const priHtml = (p.priority < 999)
+        ? \`<span style="background:#e8eaf6;color:#3f51b5;font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px">\${p.priority}</span>\`
+        : \`<span style="color:#ddd;font-size:11px">—</span>\`;
+      return \`<tr>
+      <td style="text-align:center">\${priHtml}</td>
       <td style="font-size:11px;color:#888;white-space:nowrap">\${p.code||'—'}</td>
       <td><a href="\${BASE_URL_PI}/\${p.id}/edit" style="font-weight:600;color:#1a237e;text-decoration:none">\${esc2(p.name)}</a>
         \${p.dosage ? '<br><span style="font-size:11px;color:#888">'+esc2(p.dosage)+'</span>' : ''}</td>
@@ -1209,7 +1216,8 @@ router.get('/product-info', requireLogin, (req, res) => {
           <button class="btn btn-danger btn-sm">刪除</button>
         </form>
       </td>
-    </tr>\`).join('');
+    </tr>\`;
+    }).join('');
   }
 
   function filterTable(q) {
@@ -1384,6 +1392,7 @@ function extractProductFields(body) {
     faq_internal:      s('faq_internal'),
     notes:             s('notes'),
     active:            body.active === '1' ? 1 : (body.active === undefined ? 1 : 0),
+    priority:          body.priority ? parseInt(body.priority) : 999,
   };
 }
 
@@ -1424,6 +1433,11 @@ function productInfoForm(item, brands, action, title, showActive = false) {
       <div class="form-row">
         <div class="grow">${piField('認證', 'certifications')}</div>
         <div class="grow">${piField('建議補充時段（如：早上,晚上,飯後）', 'supplement_timing')}</div>
+        <div style="width:130px">
+          <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">推薦優先順序 🔢</label>
+          <input type="number" name="priority" value="${esc(String(v.priority ?? 999))}" min="1" max="999" style="width:100%">
+          <span style="font-size:11px;color:#aaa">數字越小越優先（1=最高）</span>
+        </div>
       </div>
     </div>
 

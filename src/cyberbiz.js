@@ -16,7 +16,7 @@ let productCache = [];
 let cacheLoadedAt = null;
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // refresh every 2 hours
 
-function simplify(p) {
+function simplify(p, index = 0) {
   const variant = p.product_variants?.[0];
   const inStock = variant
     ? !(variant.inventory_management && variant.inventory_quantity <= 0)
@@ -34,6 +34,8 @@ function simplify(p) {
     type: p.product_type || '',
     tags: p.tags || [],
     published: !!p.published,
+    // sort_order: Cyberbiz may return position/sort_order; fall back to load index
+    sortOrder: p.sort_order ?? p.position ?? index,
   };
 }
 
@@ -60,7 +62,10 @@ async function loadAllProducts() {
     page++;
   }
 
-  productCache = all.map(simplify);
+  // Preserve API order (= merchant's configured sort), index as tie-breaker
+  productCache = all.map((p, i) => simplify(p, i));
+  // Sort by sortOrder ascending so recommendations follow merchant-configured order
+  productCache.sort((a, b) => a.sortOrder - b.sortOrder);
   cacheLoadedAt = Date.now();
   console.log(`[cyberbiz] Product cache loaded: ${productCache.length} products`);
   // Debug: print titles to help diagnose search issues

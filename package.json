@@ -11,11 +11,12 @@
     "@google/genai": "^1.0.0",
     "better-sqlite3": "^9.4.3",
     "dotenv": "^16.0.0",
-"express": "^4.18.0",
+    "express": "^4.18.0",
     "express-session": "^1.18.0",
     "multer": "^1.4.5-lts.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.0"
+    "nodemon": "^3.0.0",
+    "xlsx": "^0.18.5"
   }
 }
