@@ -279,6 +279,54 @@ function toggleReviewTemplate(id, active) {
   return db.prepare('UPDATE review_templates SET active=? WHERE id=?').run(active ? 1 : 0, id);
 }
 
+// ── Product Info Knowledge Base ───────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS product_info (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    brand_id       INTEGER REFERENCES brands(id),
+    product_name   TEXT NOT NULL,
+    product_url    TEXT,
+    sku            TEXT,
+    ingredients    TEXT,
+    nutrition      TEXT,
+    certifications TEXT,
+    notes          TEXT,
+    active         INTEGER NOT NULL DEFAULT 1,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now','+8 hours')),
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now','+8 hours'))
+  );
+`);
+
+function getProductInfoList({ brandId } = {}) {
+  if (brandId) return db.prepare('SELECT p.*,b.name as brand_name FROM product_info p LEFT JOIN brands b ON p.brand_id=b.id WHERE p.brand_id=? ORDER BY p.id DESC').all(brandId);
+  return db.prepare('SELECT p.*,b.name as brand_name FROM product_info p LEFT JOIN brands b ON p.brand_id=b.id ORDER BY p.id DESC').all();
+}
+function getProductInfoById(id) {
+  return db.prepare('SELECT * FROM product_info WHERE id=?').get(id);
+}
+function searchProductInfo(keyword) {
+  const kw = `%${keyword}%`;
+  return db.prepare(`SELECT * FROM product_info WHERE active=1 AND (
+    product_name LIKE ? OR ingredients LIKE ? OR nutrition LIKE ? OR certifications LIKE ? OR notes LIKE ?
+  ) ORDER BY id`).all(kw, kw, kw, kw, kw);
+}
+function upsertProductInfo({ brandId, productName, productUrl, sku, ingredients, nutrition, certifications, notes }) {
+  const existing = db.prepare('SELECT id FROM product_info WHERE brand_id IS ? AND product_name=?').get(brandId ?? null, productName);
+  if (existing) {
+    db.prepare(`UPDATE product_info SET product_url=?,sku=?,ingredients=?,nutrition=?,certifications=?,notes=?,updated_at=datetime('now','+8 hours') WHERE id=?`)
+      .run(productUrl||null, sku||null, ingredients||null, nutrition||null, certifications||null, notes||null, existing.id);
+    return { action: 'updated', id: existing.id };
+  }
+  const r = db.prepare(`INSERT INTO product_info (brand_id,product_name,product_url,sku,ingredients,nutrition,certifications,notes) VALUES (?,?,?,?,?,?,?,?)`)
+    .run(brandId ?? null, productName, productUrl||null, sku||null, ingredients||null, nutrition||null, certifications||null, notes||null);
+  return { action: 'inserted', id: r.lastInsertRowid };
+}
+function updateProductInfo(id, d) {
+  return db.prepare(`UPDATE product_info SET brand_id=?,product_name=?,product_url=?,sku=?,ingredients=?,nutrition=?,certifications=?,notes=?,active=?,updated_at=datetime('now','+8 hours') WHERE id=?`)
+    .run(d.brand_id||null, d.product_name, d.product_url||null, d.sku||null, d.ingredients||null, d.nutrition||null, d.certifications||null, d.notes||null, d.active??1, id);
+}
+function deleteProductInfo(id) { return db.prepare('DELETE FROM product_info WHERE id=?').run(id); }
+
 // ── Conversation Logs ─────────────────────────────
 function logMessage({ brandId, roomId, platform, role, message }) {
   // Store in Taipei time (UTC+8)
@@ -319,5 +367,6 @@ module.exports = {
   getRules, getGlobalRules, getCategoryRules, getEnabledRules, addRule, upsertRule, updateRule, deleteRule,
   getFaqs, getGlobalFaqs, getCategoryFaqs, getEnabledFaqs, addFaq, upsertFaq, updateFaq, deleteFaq,
   getReviewTemplates, getAllReviewTemplates, updateReviewTemplateText, getReviewTemplateById, toggleReviewTemplate,
+  getProductInfoList, getProductInfoById, searchProductInfo, upsertProductInfo, updateProductInfo, deleteProductInfo,
   logMessage, getLogs, getLogRooms, getLogPlatforms, getRoomMessages,
 };

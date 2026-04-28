@@ -2,6 +2,7 @@
 
 const { GoogleGenAI } = require('@google/genai');
 const { searchProducts, getOrderStatus } = require('./cyberbiz');
+const { searchProductInfo } = require('./db');
 const db = require('./db');
 
 const ai = new GoogleGenAI({
@@ -22,14 +23,18 @@ const SYSTEM_PROMPT = `你是達摩本草的專業客服助理，負責透過 LI
 ## 成分、醫療、安全性詢問原則
 - 顧客詢問特定成分含量（如磷、鉀、鈉、糖分等）或提及特殊健康狀況（如慢性腎臟病、糖尿病、高血壓、用藥中等）：
   1. 先表示理解顧客的顧慮，肯定他們謹慎的態度
-  2. 使用 search_products 查詢商品，直接從商品的 brief（商品描述）中提取相關成分資訊回答
-  3. 若 brief 中有提到顧客詢問的成分（如磷、鉀含量）則直接告知
-  4. 若 brief 中沒有該成分的具體數值，誠實說明「商品資料中未標示該項數值，建議查閱商品頁面完整成分表，或轉接真人客服確認」
-  5. 介紹商品時附上商品連結讓顧客可以自行查閱完整標示
+  2. 先用 get_product_info 查詢詳細產品資料庫（含成分、營養標示）
+  3. 再用 search_products 取得商品售價與連結
+  4. 若 get_product_info 有該成分數值（如磷含量、鉀含量）則直接告知
+  5. 若資料中沒有具體數值，誠實說明「詳細成分標示建議查閱商品頁面，或轉接真人客服確認」
+  6. 附上商品連結讓顧客查閱完整標示
 - 有特殊健康狀況的顧客詢問是否適合使用：說明這屬於醫療判斷，建議搭配醫師指示，不可直接說「可以吃」或「安全」
 
 ## 商品查詢
-- 顧客詢問任何商品（名稱、功效、成分、價格、推薦等），請使用 search_products 工具查詢後再回答。
+- 顧客詢問任何商品（名稱、功效、成分、價格、推薦等）：
+  1. 先用 get_product_info 查詢詳細產品資料庫（取得成分、認證、注意事項等）
+  2. 再用 search_products 取得售價、庫存、購買連結
+  3. 整合兩個工具的結果一起回答顧客
 - 顧客提及身體狀況或健康需求，主動搜尋相關商品。搜尋時不只用症狀關鍵字，也要嘗試相關成分或原料名稱，例如：
   - 血糖、醣類 → 搜尋「苦瓜」或「醣」
   - 關節、骨骼 → 搜尋「膠原蛋白」或「UC-II」
@@ -108,8 +113,19 @@ const tools = [
   {
     functionDeclarations: [
       {
+        name: 'get_product_info',
+        description: '查詢詳細產品資料庫，回傳成分、營養標示、認證、注意事項等完整資訊。商品相關問題優先呼叫此工具',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            keyword: { type: 'STRING', description: '商品名稱或關鍵字' },
+          },
+          required: ['keyword'],
+        },
+      },
+      {
         name: 'search_products',
-        description: '搜尋商品目錄，回傳商品名稱、價格、庫存狀態、網址等資訊',
+        description: '搜尋商品目錄，回傳商品名稱、價格、庫存狀態、購買網址等資訊',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -187,7 +203,11 @@ async function getAIReply({ roomId, userText, brandId }) {
     const fnResults = [];
 
     for (const call of response.functionCalls) {
-      if (call.name === 'search_products') {
+      if (call.name === 'get_product_info') {
+        console.log(`[agent] get_product_info: "${call.args.keyword}"`);
+        const productInfo = searchProductInfo(call.args.keyword);
+        fnResults.push({ functionResponse: { name: call.name, response: { productInfo } } });
+      } else if (call.name === 'search_products') {
         console.log(`[agent] search_products: "${call.args.keyword}"`);
         const products = await searchProducts(call.args.keyword);
         fnResults.push({ functionResponse: { name: call.name, response: { products } } });
