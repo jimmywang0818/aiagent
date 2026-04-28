@@ -1,7 +1,6 @@
 'use strict';
 
 const { GoogleGenAI } = require('@google/genai');
-const { search: ddgSearch } = require('duck-duck-scrape');
 const { searchProducts, getOrderStatus } = require('./cyberbiz');
 const db = require('./db');
 
@@ -237,15 +236,25 @@ const searchTool = {
 };
 
 async function runWebSearch(query, maxResults = 5) {
+  const apiKey = process.env.SERPER_API_KEY;
+  if (!apiKey) {
+    console.error('[serper] SERPER_API_KEY not set');
+    return [];
+  }
   try {
-    const results = await ddgSearch(query, { locale: 'zh-tw', safeSearch: 0 });
-    return (results.results || []).slice(0, maxResults).map(r => ({
+    const res = await fetch('https://google.serper.dev/search', {
+      method: 'POST',
+      headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q: query, num: maxResults, gl: 'tw', hl: 'zh-tw' }),
+    });
+    const data = await res.json();
+    return (data.organic || []).slice(0, maxResults).map(r => ({
       title: r.title,
-      url: r.url,
-      description: r.description,
+      url: r.link,
+      description: r.snippet,
     }));
   } catch (err) {
-    console.error('[duckduckgo] search error:', err.message);
+    console.error('[serper] search error:', err.message);
     return [];
   }
 }
