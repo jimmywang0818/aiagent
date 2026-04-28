@@ -1,6 +1,7 @@
 'use strict';
 
 const { GoogleGenAI } = require('@google/genai');
+const { search: ddgSearch } = require('duck-duck-scrape');
 const { searchProducts, getOrderStatus } = require('./cyberbiz');
 const db = require('./db');
 
@@ -218,4 +219,68 @@ function clearHistory(roomId) {
   histories.delete(roomId);
 }
 
-module.exports = { getAIReply, clearHistory };
+const searchTool = {
+  functionDeclarations: [
+    {
+      name: 'web_search',
+      description: '搜尋網路上的最新資訊、新聞、評價、趨勢等',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          query: { type: 'STRING', description: '搜尋關鍵字' },
+          max_results: { type: 'NUMBER', description: '回傳筆數，預設 5，最多 10' },
+        },
+        required: ['query'],
+      },
+    },
+  ],
+};
+
+async function runWebSearch(query, maxResults = 5) {
+  try {
+    const results = await ddgSearch(query, { locale: 'zh-tw', safeSearch: 0 });
+    return (results.results || []).slice(0, maxResults).map(r => ({
+      title: r.title,
+      url: r.url,
+      description: r.description,
+    }));
+  } catch (err) {
+    console.error('[duckduckgo] search error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * One-shot AI call for external use (e.g. n8n).
+ * @param {object} opts
+ * @param {string} opts.prompt            The user message / question
+ * @param {string} [opts.systemPrompt]    Optional system instruction
+ * @param {string} [opts.model]           Gemini model name (default: gemini-2.0-flash)
+ * @param {boolean} [opts.enableSearch]   If true, AI can call DuckDuckGo web_search
+ * @returns {Promise<string>}             The AI reply text
+ */
+async function askAI({ prompt, systemPrompt, model = 'gemini-2.0-flash', enableSearch = false }) {
+  const config = {};
+  if (systemPrompt) config.systemInstruction = systemPrompt;
+  if (enableSearch) config.tools = [searchTool];
+
+  const chat = ai.chats.create({ model, config });
+  let response = await chat.sendMessage({ message: prompt });
+
+  while (enableSearch && response.functionCalls?.length > 0) {
+    const fnResults = [];
+    for (const call of response.functionCalls) {
+      if (call.name === 'web_search') {
+        const maxResults = call.args.max_results ? Math.min(Number(call.args.max_results), 10) : 5;
+        console.log(`[ask-api] web_search: "${call.args.query}" max=${maxResults}`);
+        const results = await runWebSearch(call.args.query, maxResults);
+        fnResults.push({ functionResponse: { name: 'web_search', response: { results } } });
+      }
+    }
+    response = await chat.sendMessage({ message: fnResults });
+  }
+
+  return response.text ?? '';
+}
+
+module.exports = { getAIReply, clearHistory, askAI };

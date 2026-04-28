@@ -11,7 +11,7 @@ const path = require('path');
 const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
 const { sendMessage, transferToHuman } = require('./omnichat');
-const { getAIReply, clearHistory } = require('./agent');
+const { getAIReply, clearHistory, askAI } = require('./agent');
 const { getReviewReply } = require('./review');
 const { loadAllProducts } = require('./cyberbiz');
 const adminRouter = require('./admin');
@@ -128,6 +128,30 @@ app.post('/api/shopee-review', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('[shopee-api] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Internal Ask API ──────────────────────────────
+// POST /api/ask
+// Body: { prompt, systemPrompt?, apiKey }
+// Returns: { reply }
+app.post('/api/ask', async (req, res) => {
+  const { prompt, systemPrompt, model, enableSearch, apiKey } = req.body;
+
+  if (!process.env.INTERNAL_API_KEY || apiKey !== process.env.INTERNAL_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (!prompt || !prompt.trim()) {
+    return res.status(400).json({ error: 'prompt is required' });
+  }
+
+  console.log(`[ask-api] prompt="${prompt.slice(0, 80)}"`);
+  try {
+    const reply = await askAI({ prompt: prompt.trim(), systemPrompt, model, enableSearch: !!enableSearch });
+    res.json({ reply });
+  } catch (err) {
+    console.error('[ask-api] error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
