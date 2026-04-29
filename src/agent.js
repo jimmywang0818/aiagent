@@ -103,6 +103,62 @@ const SYSTEM_PROMPT = `你是達摩本草的專業客服助理，負責透過 LI
 顧客詢問時告知：「客服電話 02-3322-5628 轉分機 1，服務時間週一至週五 09:00–18:00」
 日常問題先用訊息解決，顧客明確要求才提供電話。
 
+## 訂單建立（貨到付款）
+顧客想要下單或詢問「貨到付款」訂購方式時，依序收集以下資訊：
+1. 確認購買商品品項與數量（若未提，先問「請問您想購買哪款商品、數量是幾盒？」）
+2. 收件人姓名
+3. 聯絡電話
+4. 收件地址（縣市、鄉鎮、詳細地址）
+收集完畢後，整理成摘要讓顧客確認，並告知「我們的客服同仁將盡快聯繫您確認訂單，謝謝」
+最後回覆 [TRANSFER_TO_HUMAN] 將訂單資訊移交真人客服處理。
+注意：不可向顧客承諾價格折扣、免運門檻或出貨時間（這些由客服確認）。
+
+## 檢驗報告
+若顧客詢問「有沒有檢驗報告」、「有做過什麼檢測」、「SGS/台美驗證」等問題：
+說明達摩本草定期委託台美檢驗（Superlab）進行產品檢驗，報告可在以下網址查閱。
+提供對應商品的報告連結；若顧客未指定商品則提供總覽頁：https://superlab.tw/damokampo/
+
+各商品檢驗報告連結：
+好敏通益生菌粉包：https://superlab.tw/20173/
+五國專利300億ABC益生菌：https://superlab.tw/20163/
+孅酵眠夜間代謝酵素：https://superlab.tw/14039/
+美國專利白腎豆+非洲芒果籽：https://superlab.tw/14029/
+脂固康植物膠囊：https://superlab.tw/12599/
+勁能老虎蔘：https://superlab.tw/12023/
+瑪卡元氣軟糖：https://superlab.tw/11444/
+專利益菌軟糖：https://superlab.tw/11436/
+明亮補給軟糖：https://superlab.tw/11425/
+孅饗樂甲殼素植物膠囊：https://superlab.tw/9938/
+日本專利紅豆複方膠囊：https://superlab.tw/9929/
+古方龜鹿精華四寶膠囊：https://superlab.tw/9793/
+高濃度EPA專利深海魚油：https://superlab.tw/7724/
+秘魯魔果100%超級印加果油：https://superlab.tw/7717/
+美國專利白高顆+青木瓜：https://superlab.tw/7708/
+孕哺媽咪卵磷脂：https://superlab.tw/7702/
+UC-II®專利二型膠原蛋白：https://superlab.tw/7691/
+古方龜鹿關鍵精華四寶：https://superlab.tw/7684/
+古印度專利薑黃素複方：https://superlab.tw/7678/
+專利靈芝子實體：https://superlab.tw/7672/
+日本專利穀胱甘肽複方：https://superlab.tw/7662/
+美國綜合活性消化酵素：https://superlab.tw/7653/
+晚安好眠黑芝麻GABA EX PLUS：https://superlab.tw/7646/
+晚安好眠黑芝麻GABA：https://superlab.tw/7638/
+成長精華長大人：https://superlab.tw/7631/
+女性綜合維他命：https://superlab.tw/7619/
+美國專利山苦瓜胜肽EX PLUS：https://superlab.tw/7613/
+歐美日專利南瓜籽+茄紅素植物膠囊：https://superlab.tw/7583/
+法國51%DHA植物藻油：https://superlab.tw/7575/
+法國專利蔓越莓益生菌：https://superlab.tw/7566/
+專利天然藜麥活力綜合B群：https://superlab.tw/7558/
+92% Omega-3 rTG高濃度魚油EX：https://superlab.tw/7262/
+日本專利蜂王乳複方膠囊：https://superlab.tw/7256/
+專利非變性二型膠原UCII粉包：https://superlab.tw/7250/
+全方面海藻鈣鎂複方：https://superlab.tw/7244/
+納豆紅麴膠囊：https://superlab.tw/7237/
+專利山苦瓜胜肽：https://superlab.tw/6544/
+日本專利沖繩褐藻醣膠膠囊：https://superlab.tw/6538/
+法國西印度櫻桃植萃天然維他命C：https://superlab.tw/6511/
+
 ## 轉接真人
 只回覆 [TRANSFER_TO_HUMAN]，不加其他文字：
 - 顧客明確要求真人客服
@@ -181,6 +237,26 @@ function buildSystemPrompt(brandId) {
  * @param {string} opts.userText
  * @param {number} [opts.brandId]  Optional override; defaults to BRAND_ID env var
  */
+// Retry wrapper for Vertex AI 429 / 503 transient errors
+async function withRetry(fn, maxRetries = 4) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const msg = err?.message || '';
+      const is429 = msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
+      const is503 = msg.includes('503') || msg.includes('UNAVAILABLE');
+      if ((is429 || is503) && attempt < maxRetries) {
+        const wait = Math.min(1000 * Math.pow(2, attempt), 16000); // 1s,2s,4s,8s
+        console.warn(`[agent] Vertex AI ${is429 ? '429' : '503'} on attempt ${attempt + 1}, retrying in ${wait}ms…`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 async function getAIReply({ roomId, userText, brandId }) {
   if (!histories.has(roomId)) {
     histories.set(roomId, []);
@@ -196,8 +272,8 @@ async function getAIReply({ roomId, userText, brandId }) {
     },
   });
 
-  // First turn: send user message
-  let response = await chat.sendMessage({ message: userText });
+  // First turn: send user message (with retry)
+  let response = await withRetry(() => chat.sendMessage({ message: userText }));
 
   // Handle function calls in a loop (Gemini may chain multiple calls)
   while (response.functionCalls?.length > 0) {
@@ -220,7 +296,7 @@ async function getAIReply({ roomId, userText, brandId }) {
       }
     }
 
-    response = await chat.sendMessage({ message: fnResults });
+    response = await withRetry(() => chat.sendMessage({ message: fnResults }));
   }
 
   const reply = response.text ?? '';
