@@ -279,10 +279,54 @@ function csvUploadCard(uploadUrl, type) {
   </div>`;
 }
 
+// ── Chinese → English CSV header mapping ─────────
+// Users can export CSV with Chinese headers; this table translates them.
+const CSV_HEADER_MAP = {
+  // 基本資訊
+  '商品名稱': 'product_name',  '品名': 'product_name',
+  '品號': 'product_code',      '料號': 'product_code',      '品號/料號': 'product_code',
+  '商品網址': 'product_url',   '商品連結': 'product_url',
+  '劑型': 'dosage_form',
+  '規格': 'spec',              '每份份量': 'spec',
+  '保存期限': 'shelf_life',
+  '產地': 'origin',
+  '葷素': 'dietary',
+  '售價': 'price',             '產品售價': 'price',
+  // 成分/營養
+  '關鍵成分': 'key_ingredients',   '關鍵成分(每份)': 'key_ingredients',
+  '產品全成分': 'all_ingredients', '全成分': 'all_ingredients',
+  '營養標示': 'nutrition',
+  // 客服
+  '認證': 'certifications',       '健康食品認證': 'certifications',
+  '注意事項': 'precautions',
+  '食用方式': 'usage_method',      '建議食用方式': 'usage_method',
+  '適合族群': 'target_groups',     '補充說明': 'target_groups',  '族群': 'target_groups',
+  '建議補充時段': 'supplement_timing', '補充時段': 'supplement_timing',
+  '銷售賣點': 'marketing_copy',    '話術': 'marketing_copy',
+  '關鍵字': 'keywords',            '關鍵字(外顯)': 'keywords',
+  '公開FAQ': 'faq_public',         'FAQ': 'faq_public',
+  '客服QA': 'faq_internal',        '客服使用QA': 'faq_internal', '內部QA': 'faq_internal',
+  '備注': 'notes',                 '備註': 'notes',
+  '台美檢驗報告網址': 'lab_report_url', '檢驗報告': 'lab_report_url',
+  '優先順序': 'priority',          '排序': 'priority',
+  '啟用': 'active',
+  '品牌ID': 'brand_id',            '品牌': 'brand_id',
+};
+
 function parseCSV(buffer) {
-  const lines = buffer.toString('utf-8').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
+  // Handle UTF-8 BOM
+  let str = buffer.toString('utf-8');
+  if (str.charCodeAt(0) === 0xFEFF) str = str.slice(1);
+
+  const lines = str.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
   if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+
+  // Translate Chinese headers to English field names
+  const headers = lines[0].split(',').map(h => {
+    const clean = h.trim().replace(/^"|"$/g, '');
+    return CSV_HEADER_MAP[clean] || clean;  // translate if known, keep original otherwise
+  });
+
   return lines.slice(1).map(line => {
     const cols = [];
     let cur = '', inQ = false;

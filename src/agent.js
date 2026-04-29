@@ -277,33 +277,68 @@ function clearHistory(roomId) {
 }
 
 /**
- * Triage an image message using Gemini Vision.
- * Returns a short description of the customer's question if the image is relevant,
- * or null if the image should be silently ignored.
+ * Triage an image message.
+ *
+ * Strategy (controlled by USE_PYTHON_OCR env var):
+ *   USE_PYTHON_OCR=true  → Python OCR (EasyOCR/pytesseract) + keyword filter, 0 AI tokens
+ *   default              → Gemini Flash Vision one-shot, ~100 tokens
+ *
+ * Returns extracted text if relevant, or null to silently ignore the image.
  *
  * @param {string} imageUrl  Public URL of the image
  * @returns {Promise<string|null>}
  */
 async function triageImage(imageUrl) {
+  if (process.env.USE_PYTHON_OCR === 'true') {
+    return triageImagePython(imageUrl);
+  }
+  return triageImageGemini(imageUrl);
+}
+
+// ── Python OCR triage (0 AI tokens) ───────────────
+async function triageImagePython(imageUrl) {
+  const { execFile } = require('child_process');
+  const path = require('path');
+  const scriptPath = path.join(__dirname, '../scripts/ocr_triage.py');
+
+  return new Promise((resolve) => {
+    const python = process.env.PYTHON_BIN || 'python3';
+    const proc = execFile(python, [scriptPath, imageUrl], { timeout: 30000 }, (err, stdout, stderr) => {
+      if (stderr) console.log(`[triageImage/ocr] ${stderr.trim().slice(0, 200)}`);
+      if (err) {
+        console.error(`[triageImage/ocr] process error: ${err.message}`);
+        resolve(null);
+        return;
+      }
+      const result = stdout.trim();
+      if (!result || result === 'IGNORE') {
+        console.log('[triageImage/ocr] IGNORE');
+        resolve(null);
+      } else {
+        console.log(`[triageImage/ocr] useful: "${result.slice(0, 80)}"`);
+        resolve(result);
+      }
+    });
+  });
+}
+
+// ── Gemini Vision triage (~100 tokens) ────────────
+async function triageImageGemini(imageUrl) {
   try {
-    // Fetch the image
     const imgRes = await fetch(imageUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LineBot-AI/1.0)' },
       signal: AbortSignal.timeout(10000),
     });
     if (!imgRes.ok) {
-      console.warn(`[triageImage] fetch failed: ${imgRes.status}`);
+      console.warn(`[triageImage/gemini] fetch failed: ${imgRes.status}`);
       return null;
     }
 
-    // Detect MIME type (default to JPEG if unknown)
     const ct = imgRes.headers.get('content-type') || 'image/jpeg';
     const mimeType = ct.split(';')[0].trim() || 'image/jpeg';
-
     const buffer = await imgRes.arrayBuffer();
     const base64 = Buffer.from(buffer).toString('base64');
 
-    // One-shot Vision call with Gemini Flash
     const response = await withRetry(() => ai.models.generateContent({
       model: 'gemini-2.0-flash',
       contents: [{
@@ -324,14 +359,12 @@ async function triageImage(imageUrl) {
     }));
 
     const result = (response.text ?? '').trim();
-    console.log(`[triageImage] result: "${result.slice(0, 100)}"`);
-
+    console.log(`[triageImage/gemini] result: "${result.slice(0, 100)}"`);
     if (!result || result.toUpperCase() === 'IGNORE') return null;
     return result;
 
   } catch (err) {
-    // On any error (network, API), silently ignore the image
-    console.error(`[triageImage] error: ${err.message}`);
+    console.error(`[triageImage/gemini] error: ${err.message}`);
     return null;
   }
 }
