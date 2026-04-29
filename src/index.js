@@ -60,6 +60,20 @@ app.post(WEBHOOK_PATH, async (req, res) => {
     const content = message.content;
 
     if (sender.type !== 'customer') continue;
+
+    // ── Non-text message guard ────────────────────
+    // Files, video, audio: reply and stop (security + UX)
+    // Images and stickers: silently skip (customers may send product photos)
+    const BLOCKED_TYPES = ['file', 'video', 'audio'];
+    if (BLOCKED_TYPES.includes(content.type)) {
+      await sendMessage({
+        teamId, roomId, replyToken, platform,
+        text: '您好！很抱歉，為了保護帳號安全，我們的客服系統無法開啟外部檔案 🙏\n\n如有商品或訂單問題，歡迎直接用文字告訴我，我很樂意協助您！',
+      });
+      console.log(`[webhook] Auto-replied to ${content.type} attachment`);
+      continue;
+    }
+
     if (content.type !== 'text') continue;
 
     const userText = content.text.trim();
@@ -73,13 +87,14 @@ app.post(WEBHOOK_PATH, async (req, res) => {
     // Ignore empty messages
     if (!userText) continue;
 
-    // Auto-reply for messages that are only a URL (or contain only a URL)
-    if (/^https?:\/\/\S+$/i.test(userText)) {
+    // ── URL guard ─────────────────────────────────
+    // Block messages that contain any http/https URL (pure or embedded in text)
+    if (/https?:\/\/\S+/i.test(userText)) {
       await sendMessage({
         teamId, roomId, replyToken, platform,
         text: '您好！感謝您的訊息 😊 很抱歉，為了保護雙方的安全，我們的客服系統無法開啟外部連結。\n\n如果您有任何商品或訂單上的問題，歡迎直接用文字告訴我，我會很樂意為您服務！',
       });
-      console.log(`[webhook] Auto-replied to URL message: "${userText.slice(0, 50)}"`);
+      console.log(`[webhook] Auto-replied to URL in message: "${userText.slice(0, 50)}"`);
       continue;
     }
 
