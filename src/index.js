@@ -74,16 +74,9 @@ app.post(WEBHOOK_PATH, async (req, res) => {
       continue;
 
     } else if (content.type === 'image') {
-      // Vision triage: check if image contains a relevant customer question
-      if (!content.url) continue;
-      console.log(`[webhook] Image received, triaging… room=${roomId}`);
-      const extracted = await triageImage(content.url);
-      if (!extracted) {
-        console.log(`[webhook] Image triage: IGNORE`);
-        continue; // Not relevant — silently skip, zero client-side AI tokens used beyond triage
-      }
-      userText = `[顧客傳送圖片，辨識內容：${extracted}]`;
-      console.log(`[webhook] Image triage: useful → "${userText.slice(0, 80)}"`);
+      // Images: silently ignore (no OCR, no AI tokens)
+      console.log(`[webhook] Image ignored room=${roomId}`);
+      continue;
 
     } else if (content.type === 'text') {
       const raw = (content.text || '').trim();
