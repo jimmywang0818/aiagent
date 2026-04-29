@@ -11,7 +11,7 @@ const path = require('path');
 const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
 const { sendMessage, transferToHuman } = require('./omnichat');
-const { getAIReply, clearHistory, askAI } = require('./agent');
+const { getAIReply, clearHistory, askAI, triageImage } = require('./agent');
 const { getReviewReply } = require('./review');
 const { loadAllProducts } = require('./cyberbiz');
 const adminRouter = require('./admin');
@@ -61,43 +61,59 @@ app.post(WEBHOOK_PATH, async (req, res) => {
 
     if (sender.type !== 'customer') continue;
 
-    // ── Non-text message guard ────────────────────
-    // Files, video, audio: reply and stop (security + UX)
-    // Images and stickers: silently skip (customers may send product photos)
-    const BLOCKED_TYPES = ['file', 'video', 'audio'];
-    if (BLOCKED_TYPES.includes(content.type)) {
+    // ── Resolve userText from message content ─────
+    let userText = null;
+
+    if (content.type === 'file' || content.type === 'video' || content.type === 'audio') {
+      // Block file/video/audio attachments for security
       await sendMessage({
         teamId, roomId, replyToken, platform,
         text: '您好！很抱歉，為了保護帳號安全，我們的客服系統無法開啟外部檔案 🙏\n\n如有商品或訂單問題，歡迎直接用文字告訴我，我很樂意協助您！',
       });
-      console.log(`[webhook] Auto-replied to ${content.type} attachment`);
+      console.log(`[webhook] Blocked ${content.type} attachment in room=${roomId}`);
+      continue;
+
+    } else if (content.type === 'image') {
+      // Vision triage: check if image contains a relevant customer question
+      if (!content.url) continue;
+      console.log(`[webhook] Image received, triaging… room=${roomId}`);
+      const extracted = await triageImage(content.url);
+      if (!extracted) {
+        console.log(`[webhook] Image triage: IGNORE`);
+        continue; // Not relevant — silently skip, zero client-side AI tokens used beyond triage
+      }
+      userText = `[顧客傳送圖片，辨識內容：${extracted}]`;
+      console.log(`[webhook] Image triage: useful → "${userText.slice(0, 80)}"`);
+
+    } else if (content.type === 'text') {
+      const raw = (content.text || '').trim();
+
+      // Ignore LINE rich menu / postback trigger messages (e.g. "Menu-5", "menu_1")
+      if (/^menu[-_]?\d*$/i.test(raw)) {
+        console.log(`[webhook] Ignored menu trigger: "${raw}"`);
+        continue;
+      }
+      if (!raw) continue;
+
+      // Block messages containing any http/https URL
+      if (/https?:\/\/\S+/i.test(raw)) {
+        await sendMessage({
+          teamId, roomId, replyToken, platform,
+          text: '您好！感謝您的訊息 😊 很抱歉，為了保護雙方的安全，我們的客服系統無法開啟外部連結。\n\n如果您有任何商品或訂單上的問題，歡迎直接用文字告訴我，我會很樂意為您服務！',
+        });
+        console.log(`[webhook] Blocked URL in message: "${raw.slice(0, 50)}"`);
+        continue;
+      }
+      userText = raw;
+
+    } else {
+      // Sticker, location, etc. — silently ignore
       continue;
     }
 
-    if (content.type !== 'text') continue;
-
-    const userText = content.text.trim();
-
-    // Ignore LINE rich menu / postback trigger messages (e.g. "Menu-5", "menu_1")
-    if (/^menu[-_]?\d*$/i.test(userText)) {
-      console.log(`[webhook] Ignored menu trigger: "${userText}"`);
-      continue;
-    }
-
-    // Ignore empty messages
     if (!userText) continue;
 
-    // ── URL guard ─────────────────────────────────
-    // Block messages that contain any http/https URL (pure or embedded in text)
-    if (/https?:\/\/\S+/i.test(userText)) {
-      await sendMessage({
-        teamId, roomId, replyToken, platform,
-        text: '您好！感謝您的訊息 😊 很抱歉，為了保護雙方的安全，我們的客服系統無法開啟外部連結。\n\n如果您有任何商品或訂單上的問題，歡迎直接用文字告訴我，我會很樂意為您服務！',
-      });
-      console.log(`[webhook] Auto-replied to URL in message: "${userText.slice(0, 50)}"`);
-      continue;
-    }
-
+    // ── Pass to AI ────────────────────────────────
     console.log(`[webhook] [${platform}] room=${roomId} user="${userText}"`);
     db.logMessage({ brandId: BRAND_ID, roomId, platform, role: 'user', message: userText });
 

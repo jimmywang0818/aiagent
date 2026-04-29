@@ -110,7 +110,7 @@ const SYSTEM_PROMPT = `你是達摩本草的專業客服助理，負責透過 LI
 3. 聯絡電話
 4. 收件地址（縣市、鄉鎮、詳細地址）
 收集完畢後，整理成摘要讓顧客確認，並告知「我們的客服同仁將盡快聯繫您確認訂單，謝謝」
-最後回覆 [TRANSFER_TO_HUMAN] 將訂單資訊移交真人客服處理。
+最後回覆 [幫你轉接真人] 將訂單資訊移交真人客服處理。
 注意：不可向顧客承諾價格折扣、免運門檻或出貨時間（這些由客服確認）。
 
 ## 檢驗報告
@@ -121,7 +121,7 @@ const SYSTEM_PROMPT = `你是達摩本草的專業客服助理，負責透過 LI
 說明：達摩本草定期委託台美檢驗（Superlab）進行產品安全性與成分檢驗
 
 ## 轉接真人
-只回覆 [TRANSFER_TO_HUMAN]，不加其他文字：
+只回覆 [幫你轉接真人]，不加其他文字：
 - 顧客明確要求真人客服
 - 訂單問題需客服實際操作（退換貨確認、修改、取消）
 - 顧客情緒激動或強烈抱怨
@@ -276,6 +276,66 @@ function clearHistory(roomId) {
   histories.delete(roomId);
 }
 
+/**
+ * Triage an image message using Gemini Vision.
+ * Returns a short description of the customer's question if the image is relevant,
+ * or null if the image should be silently ignored.
+ *
+ * @param {string} imageUrl  Public URL of the image
+ * @returns {Promise<string|null>}
+ */
+async function triageImage(imageUrl) {
+  try {
+    // Fetch the image
+    const imgRes = await fetch(imageUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LineBot-AI/1.0)' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!imgRes.ok) {
+      console.warn(`[triageImage] fetch failed: ${imgRes.status}`);
+      return null;
+    }
+
+    // Detect MIME type (default to JPEG if unknown)
+    const ct = imgRes.headers.get('content-type') || 'image/jpeg';
+    const mimeType = ct.split(';')[0].trim() || 'image/jpeg';
+
+    const buffer = await imgRes.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString('base64');
+
+    // One-shot Vision call with Gemini Flash
+    const response = await withRetry(() => ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: [{
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType, data: base64 } },
+          {
+            text: '這是顧客在電商客服中傳送的圖片。\n' +
+              '請判斷：這張圖片是否包含與保健品購買、產品成分、訂單、使用方法或顧客問題相關的文字或意圖？\n' +
+              '如果是，請用繁體中文一句話摘要顧客想問的問題（只輸出問題內容，不加任何說明）。\n' +
+              '如果不是（例如：無文字的產品照、表情貼圖、一般生活照、廣告圖），只回覆 IGNORE。',
+          },
+        ],
+      }],
+      config: {
+        systemInstruction: '只回覆顧客問題的摘要，或回覆 IGNORE，不加任何多餘說明。',
+      },
+    }));
+
+    const result = (response.text ?? '').trim();
+    console.log(`[triageImage] result: "${result.slice(0, 100)}"`);
+
+    if (!result || result.toUpperCase() === 'IGNORE') return null;
+    return result;
+
+  } catch (err) {
+    // On any error (network, API), silently ignore the image
+    console.error(`[triageImage] error: ${err.message}`);
+    return null;
+  }
+}
+
 const searchTool = {
   functionDeclarations: [
     {
@@ -393,4 +453,4 @@ async function askAI({ prompt, systemPrompt, model = 'gemini-2.0-flash', enableS
   return response.text ?? '';
 }
 
-module.exports = { getAIReply, clearHistory, askAI };
+module.exports = { getAIReply, clearHistory, askAI, triageImage };
