@@ -1309,7 +1309,8 @@ router.get('/product-info/import', requireLogin, (req, res) => {
       <code>keywords</code> — 關鍵字（逗號分隔）<br>
       <code>faq_public</code> — 公開 FAQ<br>
       <code>faq_internal</code> — 客服內部 QA<br>
-      <code>notes</code> — 備注
+      <code>notes</code> — 備注<br>
+      <code>lab_report_url</code> — 台美檢驗報告網址（Superlab）
     </div>
     <form method="POST" action="${BASE}/product-info/upload" enctype="multipart/form-data">
       <div class="upload-area" style="margin-bottom:14px">
@@ -1344,6 +1345,7 @@ router.get('/product-info/upload/template', requireLogin, (req, res) => {
     'shelf_life','origin','dietary','price','key_ingredients','all_ingredients',
     'nutrition','certifications','precautions','usage_method','target_groups',
     'supplement_timing','marketing_copy','keywords','faq_public','faq_internal','notes',
+    'lab_report_url',
   ].join(',');
   const example = [
     '7','1021060101','【達摩本草】戰神瑪卡膠囊(30顆)',
@@ -1391,6 +1393,7 @@ function extractProductFields(body) {
     faq_public:        s('faq_public'),
     faq_internal:      s('faq_internal'),
     notes:             s('notes'),
+    lab_report_url:    s('lab_report_url'),
     active:            body.active === '1' ? 1 : (body.active === undefined ? 1 : 0),
     priority:          body.priority ? parseInt(body.priority) : 999,
   };
@@ -1458,6 +1461,7 @@ function productInfoForm(item, brands, action, title, showActive = false) {
       ${f('公開 FAQ', 'faq_public', 'textarea')}
       ${f('客服內部 QA（非公開）', 'faq_internal', 'textarea')}
       ${f('備注', 'notes')}
+      ${f('台美檢驗報告網址（Superlab）', 'lab_report_url')}
       ${fa}
     </div>
 

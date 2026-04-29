@@ -16,7 +16,8 @@ const cols = [
   'brand_id','product_code','product_name','product_url','dosage_form','spec',
   'shelf_life','origin','dietary','price','key_ingredients','all_ingredients','nutrition',
   'certifications','precautions','usage_method','target_groups','supplement_timing',
-  'marketing_copy','keywords','faq_public','faq_internal','notes','priority','active',
+  'marketing_copy','keywords','faq_public','faq_internal','notes','lab_report_url',
+  'priority','active',
 ];
 
 const placeholders = cols.map(() => '?').join(',');

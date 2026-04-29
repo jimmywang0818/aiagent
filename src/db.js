@@ -292,6 +292,11 @@ function toggleReviewTemplate(id, active) {
     console.log('[db] Adding priority column to product_info…');
     db.exec(`ALTER TABLE product_info ADD COLUMN priority INTEGER NOT NULL DEFAULT 999`);
   }
+  // Add lab_report_url col if not present
+  if (piCols.length > 0 && !piCols.includes('lab_report_url')) {
+    console.log('[db] Adding lab_report_url column to product_info…');
+    db.exec(`ALTER TABLE product_info ADD COLUMN lab_report_url TEXT`);
+  }
 }
 
 db.exec(`
@@ -320,6 +325,7 @@ db.exec(`
     faq_public        TEXT,
     faq_internal      TEXT,
     notes             TEXT,
+    lab_report_url    TEXT,
     priority          INTEGER NOT NULL DEFAULT 999,
     active            INTEGER NOT NULL DEFAULT 1,
     created_at        TEXT NOT NULL DEFAULT (datetime('now','+8 hours')),
@@ -374,22 +380,24 @@ function upsertProductInfo(d) {
     d.key_ingredients||null, d.all_ingredients||null, d.nutrition||null,
     d.certifications||null, d.precautions||null, d.usage_method||null,
     d.target_groups||null, d.supplement_timing||null, d.marketing_copy||null,
-    d.keywords||null, d.faq_public||null, d.faq_internal||null, d.notes||null, pri,
+    d.keywords||null, d.faq_public||null, d.faq_internal||null, d.notes||null,
+    d.lab_report_url||null, pri,
   ];
   if (existing) {
     db.prepare(`UPDATE product_info SET
       product_url=?,product_code=?,dosage_form=?,spec=?,shelf_life=?,origin=?,dietary=?,price=?,
       key_ingredients=?,all_ingredients=?,nutrition=?,certifications=?,precautions=?,usage_method=?,
       target_groups=?,supplement_timing=?,marketing_copy=?,keywords=?,faq_public=?,faq_internal=?,
-      notes=?,priority=?,updated_at=datetime('now','+8 hours') WHERE id=?`
+      notes=?,lab_report_url=?,priority=?,updated_at=datetime('now','+8 hours') WHERE id=?`
     ).run(...vals, existing.id);
     return { action: 'updated', id: existing.id };
   }
   const r = db.prepare(`INSERT INTO product_info (
     brand_id,product_name,product_url,product_code,dosage_form,spec,shelf_life,origin,dietary,price,
     key_ingredients,all_ingredients,nutrition,certifications,precautions,usage_method,
-    target_groups,supplement_timing,marketing_copy,keywords,faq_public,faq_internal,notes,priority
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    target_groups,supplement_timing,marketing_copy,keywords,faq_public,faq_internal,notes,
+    lab_report_url,priority
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(bId, name, ...vals);
   return { action: 'inserted', id: r.lastInsertRowid };
 }
@@ -399,7 +407,7 @@ function updateProductInfo(id, d) {
     brand_id=?,product_name=?,product_url=?,product_code=?,dosage_form=?,spec=?,shelf_life=?,
     origin=?,dietary=?,price=?,key_ingredients=?,all_ingredients=?,nutrition=?,certifications=?,
     precautions=?,usage_method=?,target_groups=?,supplement_timing=?,marketing_copy=?,
-    keywords=?,faq_public=?,faq_internal=?,notes=?,priority=?,active=?,
+    keywords=?,faq_public=?,faq_internal=?,notes=?,lab_report_url=?,priority=?,active=?,
     updated_at=datetime('now','+8 hours') WHERE id=?`
   ).run(
     d.brand_id||null, d.product_name, d.product_url||null, d.product_code||null,
@@ -408,7 +416,7 @@ function updateProductInfo(id, d) {
     d.nutrition||null, d.certifications||null, d.precautions||null, d.usage_method||null,
     d.target_groups||null, d.supplement_timing||null, d.marketing_copy||null,
     d.keywords||null, d.faq_public||null, d.faq_internal||null, d.notes||null,
-    d.priority ?? 999, d.active ?? 1, id
+    d.lab_report_url||null, d.priority ?? 999, d.active ?? 1, id
   );
 }
 
