@@ -136,7 +136,7 @@ app.post(WEBHOOK_PATH, async (req, res) => {
 app.post('/api/shopee-review', async (req, res) => {
   const { reviewText, brandId, rating, hasImage, apiKey } = req.body;
 
-  if (!process.env.SHOPEE_API_KEY || apiKey !== process.env.SHOPEE_API_KEY) {
+  if (!process.env.INTERNAL_API_KEY || apiKey !== process.env.INTERNAL_API_KEY) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
