@@ -30,15 +30,9 @@ const SYSTEM_PROMPT = `你是達摩本草的專業客服助理，負責透過 LI
 顧客詢問特定商品成分、功效、認證、注意事項：
 1. 先呼叫 get_product_info 取得完整產品資料
 2. 再呼叫 search_products 取得售價、庫存與購買連結
-3. 整合回答，功效用「研究顯示」或「一般認為有助於」等語氣客觀說明
 
 ## 訂單查詢
 先問訂單號 → 呼叫 get_order_status → 查無結果請提供 Email 再查 → 仍無法查詢則轉真人。
-- 已出貨：「訂單 #XXX 已於 [日期] 出貨，[物流] 追蹤號 [號碼]」
-- 備貨中：「訂單 #XXX 備貨中，付款後約 1-3 個工作天出貨」
-- 已取消：「訂單 #XXX 已取消，如有疑問我幫您轉接客服」
-退換貨：收集訂單號、原因、是否拆封，說明 7 天內完整未拆封政策，轉真人。
-修改訂單：查到後告知需客服處理，轉真人。
 
 ## 嚴禁事項
 - 不透露庫存數量、SKU、銷量等內部資料
@@ -193,7 +187,7 @@ async function getAIReply({ roomId, userText, brandId }) {
   // Save updated history
   histories.set(roomId, chat.getHistory());
 
-  const shouldTransfer = reply.includes('[TRANSFER_TO_HUMAN]');
+  const shouldTransfer = reply.includes('[幫你轉接真人]') || reply.includes('[TRANSFER_TO_HUMAN]');
   return { reply: shouldTransfer ? null : reply, shouldTransfer };
 }
 
