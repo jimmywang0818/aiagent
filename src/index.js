@@ -134,20 +134,31 @@ app.post(WEBHOOK_PATH, async (req, res) => {
 // Body: { reviewText, brandId, apiKey }
 // Returns: { reply, templateId, source, needsHuman, reason }
 app.post('/api/shopee-review', async (req, res) => {
-  const { reviewText, brandId, apiKey } = req.body;
+  const { reviewText, brandId, rating, hasImage, apiKey } = req.body;
 
-  if (!process.env.SHOPEE_API_KEY || apiKey !== process.env.SHOPEE_API_KEY) {
+  if (!process.env.INTERNAL_API_KEY || apiKey !== process.env.INTERNAL_API_KEY) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  if (!reviewText || !reviewText.trim()) {
-    return res.status(400).json({ error: 'reviewText is required' });
+
+  // 相容 JSON body（型別正確）和 form-encoded body（全部為字串）兩種格式
+  const brandIdParsed = (brandId != null && brandId !== '' && brandId !== 'null')
+    ? parseInt(brandId) : null;
+  const ratingParsed  = (rating  != null && rating  !== '' && rating  !== 'null')
+    ? parseInt(rating)  : null;
+  const hasImageParsed = hasImage === true || hasImage === 'true';
+
+  // reviewText 可為空（純星等評論）；但至少要有 reviewText 或 rating 其中一個
+  if (!reviewText?.trim() && ratingParsed == null) {
+    return res.status(400).json({ error: 'reviewText or rating is required' });
   }
 
-  console.log(`[shopee-api] brand=${brandId||'?'} review="${reviewText.slice(0,60)}"`);
+  console.log(`[shopee-api] brand=${brandIdParsed??'null'} rating=${ratingParsed??'?'} hasImage=${hasImageParsed} review="${(reviewText||'').slice(0,60)}"`);
   try {
     const result = await getReviewReply({
-      reviewText: reviewText.trim(),
-      brandId:    brandId ? parseInt(brandId) : null,
+      reviewText: reviewText?.trim() || '',
+      brandId:    brandIdParsed,
+      rating:     ratingParsed,
+      hasImage:   hasImageParsed,
     });
     res.json(result);
   } catch (err) {
@@ -170,9 +181,8 @@ app.post('/api/ask', async (req, res) => {
     return res.status(400).json({ error: 'prompt is required' });
   }
 
-  console.log(`[ask-api] prompt="${prompt.slice(0, 80)}"`);
   try {
-    const reply = await askAI({ prompt: prompt.trim(), systemPrompt, model, enableSearch: !!enableSearch });
+    const reply = await askAI({ prompt: prompt.trim(), systemPrompt, model, enableSearch: !!enableSearch, silent: true });
     res.json({ reply });
   } catch (err) {
     console.error('[ask-api] error:', err.message);

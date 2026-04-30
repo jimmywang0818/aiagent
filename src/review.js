@@ -40,16 +40,43 @@ async function notifyGoogleChat({ brand, reviewText, reason }) {
 }
 
 /**
+ * Pick a random template for a pure 5-star / no-text review.
+ * Returns template text without calling AI.
+ */
+function getBlankFiveStarTemplate(templateCategory) {
+  const templates = db.getReviewTemplates(templateCategory);
+  // Prefer "5星無評論" templates; fall back to any 通用 template
+  const preferred = templates.filter(t =>
+    t.sub_category.includes('5星無評論') || t.sub_category.includes('0、5星')
+  );
+  const pool = preferred.length ? preferred : templates.filter(t => t.category === '通用');
+  if (!pool.length) return null;
+  const tpl = pool[Math.floor(Math.random() * pool.length)];
+  return { reply: tpl.template_text, templateId: tpl.template_id, source: 'template', needsHuman: false };
+}
+
+/**
  * Get AI-generated reply for a Shopee review.
  * @param {object} opts
- * @param {string} opts.reviewText  - The customer review text
+ * @param {string}  opts.reviewText  - The customer review text
  * @param {number|null} opts.brandId - Brand ID (from brands table)
+ * @param {number}  [opts.rating]    - Star rating 1-5 (optional)
+ * @param {boolean} [opts.hasImage]  - Whether review contains an image (optional)
  * @returns {{ reply, templateId, source, needsHuman, reason }}
  */
-async function getReviewReply({ reviewText, brandId }) {
+async function getReviewReply({ reviewText, brandId, rating, hasImage }) {
   const brand = brandId ? db.getBrandById(brandId) : null;
   const brandCategory   = brand?.category || null;
   const templateCategory = CATEGORY_MAP[brandCategory] || null;
+
+  // Short-circuit: pure 5-star no-text / no-image review — no AI needed
+  if (rating === 5 && !reviewText?.trim() && !hasImage) {
+    const result = getBlankFiveStarTemplate(templateCategory);
+    if (result) {
+      console.log(`[review] 5-star blank → template ${result.templateId} (no AI)`);
+      return result;
+    }
+  }
 
   // Get relevant templates: 通用 + category-specific
   const templates = db.getReviewTemplates(templateCategory);
