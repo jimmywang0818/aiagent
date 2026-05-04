@@ -172,7 +172,7 @@ app.post('/api/shopee-review', async (req, res) => {
 // Body: { prompt, systemPrompt?, apiKey }
 // Returns: { reply }
 app.post('/api/ask', async (req, res) => {
-  const { prompt, systemPrompt, model, enableSearch, apiKey } = req.body;
+  const { prompt, systemPrompt, model, enableSearch, sessionId, apiKey } = req.body;
 
   if (!process.env.INTERNAL_API_KEY || apiKey !== process.env.INTERNAL_API_KEY) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -182,7 +182,14 @@ app.post('/api/ask', async (req, res) => {
   }
 
   try {
-    const reply = await askAI({ prompt: prompt.trim(), systemPrompt, model, enableSearch: !!enableSearch, silent: true });
+    const reply = await askAI({
+      prompt: prompt.trim(),
+      systemPrompt,
+      model,
+      enableSearch: !!enableSearch,
+      sessionId: sessionId || null,
+      silent: true,
+    });
     res.json({ reply });
   } catch (err) {
     console.error('[ask-api] error:', err.message);

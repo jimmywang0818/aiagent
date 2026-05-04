@@ -92,6 +92,17 @@ const tools = [
 // Conversation history per room: Map<roomId, Content[]>
 const histories = new Map();
 
+// Session history for askAI (e.g. LINE bot via /api/ask)
+// Map<sessionId, { history: Content[], lastUsed: number }>
+const askSessions = new Map();
+const ASK_SESSION_TTL = 30 * 60 * 1000; // 30 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, s] of askSessions) {
+    if (now - s.lastUsed > ASK_SESSION_TTL) askSessions.delete(id);
+  }
+}, 5 * 60 * 1000);
+
 function buildSystemPrompt(brandId) {
   const id = brandId || parseInt(process.env.BRAND_ID || '7');
   const rules = db.getEnabledRules(id);
@@ -372,20 +383,27 @@ async function runWebSearch(query, maxResults = 5) {
 }
 
 /**
- * One-shot AI call for external use (e.g. n8n).
+ * One-shot or session-aware AI call for external use (e.g. n8n).
  * @param {object} opts
  * @param {string} opts.prompt            The user message / question
  * @param {string} [opts.systemPrompt]    Optional system instruction
  * @param {string} [opts.model]           Gemini model name (default: gemini-2.0-flash)
- * @param {boolean} [opts.enableSearch]   If true, AI can call DuckDuckGo web_search
+ * @param {boolean} [opts.enableSearch]   If true, AI can call web_search / fetch_page tools
+ * @param {string}  [opts.sessionId]      If provided, conversation history is maintained across calls
+ * @param {boolean} [opts.silent]         Suppress verbose logs
  * @returns {Promise<string>}             The AI reply text
  */
-async function askAI({ prompt, systemPrompt, model = 'gemini-2.0-flash', enableSearch = false, silent = false }) {
+async function askAI({ prompt, systemPrompt, model = 'gemini-2.0-flash', enableSearch = false, sessionId = null, silent = false }) {
   const config = {};
   if (systemPrompt) config.systemInstruction = systemPrompt;
   if (enableSearch) config.tools = [searchTool];
 
-  const chat = ai.chats.create({ model, config });
+  // Load existing history for this session (if any)
+  const history = sessionId && askSessions.has(sessionId)
+    ? askSessions.get(sessionId).history
+    : [];
+
+  const chat = ai.chats.create({ model, config, history });
   let response = await chat.sendMessage({ message: prompt });
 
   while (enableSearch && response.functionCalls?.length > 0) {
@@ -402,6 +420,11 @@ async function askAI({ prompt, systemPrompt, model = 'gemini-2.0-flash', enableS
       }
     }
     response = await chat.sendMessage({ message: fnResults });
+  }
+
+  // Save updated history back to session store
+  if (sessionId) {
+    askSessions.set(sessionId, { history: chat.getHistory(), lastUsed: Date.now() });
   }
 
   return response.text ?? '';
