@@ -32,7 +32,11 @@ const SYSTEM_PROMPT = `你是達摩本草的專業客服助理，負責透過 LI
 2. 再呼叫 search_products 取得售價、庫存與購買連結
 
 ## 訂單查詢
-先問訂單號 → 呼叫 get_order_status → 查無結果請提供 Email 再查 → 仍無法查詢則轉真人。
+依序嘗試，找到結果即停止：
+1. 詢問訂單號 → 呼叫 get_order_status(order_number)
+2. 查無結果 → 請顧客提供訂購 Email → 呼叫 get_order_status(email)
+3. 仍無結果 → 請顧客提供訂購時的電話號碼 → 呼叫 get_order_status(phone)
+4. 三種方式都查不到 → 轉真人客服
 
 ## 嚴禁事項
 - 不透露庫存數量、SKU、銷量等內部資料
@@ -81,8 +85,9 @@ const tools = [
           type: 'OBJECT',
           properties: {
             order_number: { type: 'STRING', description: '訂單編號，如 DA123456 或純數字' },
-            email:        { type: 'STRING', description: '顧客 Email（訂單號查無結果時使用）' },
-            name:         { type: 'STRING', description: '訂購人姓名（訂單號查無結果時使用）' },
+            email:        { type: 'STRING', description: '顧客訂購時使用的 Email' },
+            phone:        { type: 'STRING', description: '顧客訂購時使用的電話號碼' },
+            name:         { type: 'STRING', description: '訂購人姓名（僅供參考，無法單獨查詢）' },
           },
         },
       },
@@ -172,9 +177,9 @@ async function getAIReply({ roomId, userText, brandId }) {
         const products = await searchProducts(call.args.keyword);
         fnResults.push({ functionResponse: { name: call.name, response: { products } } });
       } else if (call.name === 'get_order_status') {
-        const { order_number, email, name } = call.args;
-        console.log(`[agent] get_order_status: order=${order_number} email=${email} name=${name}`);
-        const orders = await getOrderStatus({ orderNumber: order_number, email, name });
+        const { order_number, email, phone, name } = call.args;
+        console.log(`[agent] get_order_status: order=${order_number} email=${email} phone=${phone} name=${name}`);
+        const orders = await getOrderStatus({ orderNumber: order_number, email, phone, name });
         fnResults.push({ functionResponse: { name: call.name, response: { orders } } });
       }
     }
