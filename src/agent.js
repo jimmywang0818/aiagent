@@ -31,12 +31,6 @@ const SYSTEM_PROMPT = `你是達摩本草的專業客服助理，負責透過 LI
 1. 先呼叫 get_product_info 取得完整產品資料
 2. 再呼叫 search_products 取得售價、庫存與購買連結
 
-## 訂單查詢
-依序嘗試，找到結果即停止：
-1. 詢問訂單號 → 呼叫 get_order_status(order_number)
-2. 查無結果 → 請顧客提供訂購 Email → 呼叫 get_order_status(email)
-3. 仍無結果 → 請顧客提供訂購時的電話號碼 → 呼叫 get_order_status(phone)
-4. 三種方式都查不到 → 轉真人客服
 
 ## 嚴禁事項
 - 不透露庫存數量、SKU、銷量等內部資料
