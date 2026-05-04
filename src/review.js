@@ -18,7 +18,8 @@ const CATEGORY_MAP = {
 };
 
 async function notifyGoogleChat({ brand, reviewText, reason }) {
-  const webhook = process.env.GOOGLE_CHAT_WEBHOOK;
+  return; // 暫時關閉 Google Chat 通知
+  const webhook = process.env.GOOGLE_CHAT_WEBHOOK; // eslint-disable-line no-unreachable
   if (!webhook) return;
   const text = [
     '🚨 *蝦皮評論需人工處理*',
@@ -85,7 +86,6 @@ async function getReviewReply({ reviewText, brandId, rating, hasImage }) {
     if (rating >= 1 && rating <= 2) {
       const reason = `${rating}星無評論，需人工確認`;
       console.log(`[review] ${rating}-star blank → needs_human`);
-      await notifyGoogleChat({ brand, reviewText: `(${rating}星，無文字)`, reason });
       return { reply: null, source: 'needs_human', needsHuman: true, reason };
     }
     // 3–5 star no text → use template
@@ -163,7 +163,6 @@ ${templateList}`;
   // ── Needs human ──
   if (parsed.action === 'needs_human') {
     console.log(`[review] Needs human: ${parsed.reason}`);
-    await notifyGoogleChat({ brand, reviewText, reason: parsed.reason });
     return {
       reply:      null,
       source:     'needs_human',
