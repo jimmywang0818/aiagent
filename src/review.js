@@ -40,16 +40,26 @@ async function notifyGoogleChat({ brand, reviewText, reason }) {
 }
 
 /**
- * Pick a random template for a pure 5-star / no-text review.
- * Returns template text without calling AI.
+ * Pick a random template for a no-text / no-image review based on star rating.
+ * Returns template result without calling AI.
  */
-function getBlankFiveStarTemplate(templateCategory) {
+function getNoTextTemplate(rating, templateCategory) {
   const templates = db.getReviewTemplates(templateCategory);
-  // Prefer "5星無評論" templates; fall back to any 通用 template
+
+  // Determine sub_category keywords by rating
+  let keywords;
+  if (rating === 5)      keywords = ['5星無評論', '0、5星'];
+  else if (rating === 4) keywords = ['4星無評論'];
+  else                   keywords = ['3星無評論'];  // rating === 3
+
   const preferred = templates.filter(t =>
-    t.sub_category.includes('5星無評論') || t.sub_category.includes('0、5星')
+    keywords.some(kw => t.sub_category.includes(kw))
   );
-  const pool = preferred.length ? preferred : templates.filter(t => t.category === '通用');
+  // Fallback: use any 5星無評論 通用 template
+  const fallback = templates.filter(t =>
+    t.category === '通用' && (t.sub_category.includes('5星無評論') || t.sub_category.includes('0、5星'))
+  );
+  const pool = preferred.length ? preferred : fallback;
   if (!pool.length) return null;
   const tpl = pool[Math.floor(Math.random() * pool.length)];
   return { reply: tpl.template_text, templateId: tpl.template_id, source: 'template', needsHuman: false };
@@ -69,12 +79,22 @@ async function getReviewReply({ reviewText, brandId, rating, hasImage }) {
   const brandCategory   = brand?.category || null;
   const templateCategory = CATEGORY_MAP[brandCategory] || null;
 
-  // Short-circuit: pure 5-star no-text / no-image review — no AI needed
-  if (rating === 5 && !reviewText?.trim() && !hasImage) {
-    const result = getBlankFiveStarTemplate(templateCategory);
-    if (result) {
-      console.log(`[review] 5-star blank → template ${result.templateId} (no AI)`);
-      return result;
+  // Short-circuit: no-text / no-image reviews — skip AI
+  if (!reviewText?.trim() && !hasImage) {
+    // 1–2 star no text → needs human immediately
+    if (rating >= 1 && rating <= 2) {
+      const reason = `${rating}星無評論，需人工確認`;
+      console.log(`[review] ${rating}-star blank → needs_human`);
+      await notifyGoogleChat({ brand, reviewText: `(${rating}星，無文字)`, reason });
+      return { reply: null, source: 'needs_human', needsHuman: true, reason };
+    }
+    // 3–5 star no text → use template
+    if (rating >= 3 && rating <= 5) {
+      const result = getNoTextTemplate(rating, templateCategory);
+      if (result) {
+        console.log(`[review] ${rating}-star blank → template ${result.templateId} (no AI)`);
+        return result;
+      }
     }
   }
 
