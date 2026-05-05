@@ -1037,30 +1037,88 @@ router.post('/products/reload', requireLogin, async (req, res) => {
 });
 
 // ── Review Templates ──────────────────────────────
+
+// Sub-category presets per category (used in dropdowns)
+const REVIEW_SUB_CATS = {
+  '通用':    ['0、5星無評論','4星無評論','3星無評論','1、出貨速度快、服務好之類的','2、包裝完整','3、有部分建議','4、肯定產品','5、喜歡行銷活動、贈品活動，點數兌換活動'],
+  '保健品':  ['1、5星無評論','4星無評論','3星無評論','2、回購顧客','3、吃了有用','4、剛吃不確定效果','*魚油通用(小顆)'],
+  '保養品':  ['4星無評論','3星無評論','1、喜歡養髮液、生髮洗髮精等洗劑的味道','2、用了有用（養髮液）','3、剛用不確定效果（養髮液）','4、回購顧客（養髮液）','5、回購','6、包裝'],
+  '寵物':    ['1、5星無評論','4星無評論','2、回購顧客','3、肯定產品品質'],
+  '清潔用品':['1、5星無評論','2、清潔效果好','3、回購顧客'],
+};
+const REVIEW_CATS = Object.keys(REVIEW_SUB_CATS);
+
+// Shared JS+HTML snippet for dynamic category/sub_category dropdowns
+function reviewSubCatScript(catId, subId, customId, currentCat, currentSub) {
+  const presets = JSON.stringify(REVIEW_SUB_CATS);
+  return `
+<script>
+(function(){
+  var presets = ${presets};
+  var catSel = document.getElementById('${catId}');
+  var subSel = document.getElementById('${subId}');
+  var customWrap = document.getElementById('${customId}_wrap');
+  var customInp  = document.getElementById('${customId}');
+  function updateSubs(cat, keepVal) {
+    var opts = presets[cat] || [];
+    subSel.innerHTML = '';
+    opts.forEach(function(s){
+      var o = document.createElement('option');
+      o.value = s; o.textContent = s;
+      if (s === keepVal) o.selected = true;
+      subSel.appendChild(o);
+    });
+    var sep = document.createElement('option'); sep.value='__custom__'; sep.textContent='✏️ 自訂情境…';
+    if (keepVal==='__custom__') sep.selected=true;
+    subSel.appendChild(sep);
+    checkCustom();
+  }
+  function checkCustom(){
+    if(subSel.value==='__custom__'){
+      customWrap.style.display='block';
+      customInp.required=true;
+    } else {
+      customWrap.style.display='none';
+      customInp.required=false;
+      customInp.value='';
+    }
+  }
+  catSel.addEventListener('change', function(){ updateSubs(this.value,''); });
+  subSel.addEventListener('change', checkCustom);
+  updateSubs('${currentCat}', '${currentSub.replace(/'/g,"\\'")}');
+})();
+</script>`;
+}
+
 router.get('/reviews', requireLogin, (req, res) => {
-  const templates = db.getAllReviewTemplates();
+  const templates  = db.getAllReviewTemplates();
+  const nextId     = db.getNextTemplateId();
+  const msg        = req.query.msg;
 
   // Group by category
   const catOrder = ['通用', '保健品', '保養品', '寵物', '清潔用品'];
-  const grouped = {};
+  const grouped  = {};
   catOrder.forEach(c => { grouped[c] = []; });
   templates.forEach(t => { (grouped[t.category] || (grouped[t.category] = [])).push(t); });
 
   const catColors = { '通用':'#546e7a','保健品':'#2e7d32','保養品':'#6a1b9a','寵物':'#e65100','清潔用品':'#1565c0' };
 
   const sections = Object.entries(grouped).filter(([,list]) => list.length).map(([cat, list]) => {
-    const color = catColors[cat] || '#546e7a';
-    const activeCount  = list.filter(t => t.active).length;
+    const color       = catColors[cat] || '#546e7a';
+    const activeCount = list.filter(t => t.active).length;
     const rows = list.map(t => `<tr>
       <td width="60" style="font-family:monospace;font-size:12px">${esc(t.template_id)}</td>
       <td style="font-size:12px;color:#888">${esc(t.sub_category)}</td>
-      <td style="max-width:380px;white-space:pre-wrap;font-size:12px;line-height:1.5">${esc(t.template_text)}</td>
+      <td style="max-width:360px;white-space:pre-wrap;font-size:12px;line-height:1.5">${esc(t.template_text)}</td>
       <td width="70"><span class="badge ${t.active?'on':'off'}">${t.active?'啟用':'停用'}</span></td>
-      <td width="130" style="white-space:nowrap">
+      <td width="160" style="white-space:nowrap">
         <a href="${BASE}/reviews/${t.id}/edit" class="btn btn-primary btn-sm">編輯</a>
         <form method="POST" action="${BASE}/reviews/${t.id}/toggle" style="display:inline">
           <input type="hidden" name="active" value="${t.active?'0':'1'}">
           <button class="btn btn-sm ${t.active?'btn-ghost':'btn-success'}">${t.active?'停用':'啟用'}</button>
+        </form>
+        <form method="POST" action="${BASE}/reviews/${t.id}/delete" style="display:inline" onsubmit="return confirm('確定刪除模板 ${esc(t.template_id)}？')">
+          <button class="btn btn-danger btn-sm">刪除</button>
         </form>
       </td>
     </tr>`).join('');
@@ -1074,37 +1132,154 @@ router.get('/reviews', requireLogin, (req, res) => {
     </div>`;
   }).join('');
 
+  // Category options for dropdown
+  const catOptions = REVIEW_CATS.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+
   const body = `<div class="page-header">
     <h2>🏷 評論模板管理</h2>
     <span style="font-size:12px;color:#999">管理蝦皮評論自動回覆模板。啟用的模板才會被 AI 選用。</span>
+    <button class="btn btn-success" style="margin-left:auto" onclick="document.getElementById('add-form-wrap').style.display=document.getElementById('add-form-wrap').style.display==='none'?'block':'none'">＋ 新增模板</button>
   </div>
-  ${sections}`;
+
+  ${msg==='added'   ? '<div class="alert alert-success">✓ 模板已新增</div>' : ''}
+  ${msg==='deleted' ? '<div class="alert alert-success">✓ 模板已刪除</div>' : ''}
+
+  <div id="add-form-wrap" style="display:none">
+  <div class="card" style="max-width:700px;margin-bottom:24px">
+    <h3 style="margin-bottom:16px">新增評論模板</h3>
+    <form method="POST" action="${BASE}/reviews/add" id="add-tpl-form" onsubmit="return submitAddForm(event)">
+      <div class="form-row" style="align-items:center;margin-bottom:12px">
+        <div style="flex:0 0 auto">
+          <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">模板 ID（系統自動分配）</label>
+          <input type="text" value="${esc(nextId)}" readonly style="width:90px;background:#f5f5f5;color:#888;text-align:center;font-family:monospace;font-weight:700">
+        </div>
+        <div class="grow">
+          <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">類別</label>
+          <select id="add-cat" name="category" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px" required>
+            ${catOptions}
+          </select>
+        </div>
+        <div class="grow">
+          <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">情境</label>
+          <select id="add-sub" name="sub_category" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px" required></select>
+        </div>
+      </div>
+      <div id="add-custom_wrap" style="display:none;margin-bottom:10px">
+        <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">自訂情境名稱</label>
+        <input type="text" id="add-custom" placeholder="輸入自訂情境名稱" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+      </div>
+      <div>
+        <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">模板內容</label>
+        <textarea name="template_text" rows="6" placeholder="輸入回覆模板內容，可使用 emoji…" required style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:vertical"></textarea>
+      </div>
+      <div class="form-actions" style="margin-top:14px">
+        <button type="submit" class="btn btn-success">新增模板</button>
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('add-form-wrap').style.display='none'">取消</button>
+      </div>
+    </form>
+  </div>
+  </div>
+
+  ${sections}
+  <script>
+  function submitAddForm(e){
+    var custom = document.getElementById('add-custom');
+    var sub    = document.getElementById('add-sub');
+    if(sub.value==='__custom__'){
+      var v = (custom.value||'').trim();
+      if(!v){ alert('請輸入自訂情境名稱'); e.preventDefault(); return false; }
+      // Inject a hidden input so the real value is submitted
+      var h = document.createElement('input');
+      h.type='hidden'; h.name='sub_category'; h.value=v;
+      document.getElementById('add-tpl-form').appendChild(h);
+      sub.name=''; // disable original select so it doesn't conflict
+    }
+    return true;
+  }
+  </script>
+  ${reviewSubCatScript('add-cat','add-sub','add-custom','通用','')}`;
+
   res.send(layout('評論模板', body, 'reviews'));
+});
+
+router.post('/reviews/add', requireLogin, (req, res) => {
+  const category     = (req.body.category     || '').trim();
+  const sub_category = (req.body.sub_category || '').trim();
+  const template_text= (req.body.template_text|| '').trim();
+  if (!category || !sub_category || !template_text) {
+    return res.redirect(`${BASE}/reviews`);
+  }
+  db.addReviewTemplate({ category, sub_category, template_text });
+  res.redirect(`${BASE}/reviews?msg=added`);
 });
 
 router.get('/reviews/:id/edit', requireLogin, (req, res) => {
   const tpl = db.getReviewTemplateById(req.params.id);
   if (!tpl) return res.redirect(`${BASE}/reviews`);
+
+  const catOptions = REVIEW_CATS.map(c =>
+    `<option value="${esc(c)}"${c===tpl.category?' selected':''}>${esc(c)}</option>`
+  ).join('');
+
   const body = `<div class="page-header">
     <a href="${BASE}/reviews" style="color:#1a237e;font-size:13px">← 返回模板列表</a>
   </div>
-  <div class="card" style="max-width:680px">
-    <h3>編輯模板 ${esc(tpl.template_id)}</h3>
-    <p style="font-size:12px;color:#888;margin-bottom:14px">類別：${esc(tpl.category)} ／ 情境：${esc(tpl.sub_category)}</p>
-    <form method="POST" action="${BASE}/reviews/${tpl.id}/edit">
-      <textarea name="template_text" rows="8" style="width:100%;font-size:13px" required>${esc(tpl.template_text)}</textarea>
-      <div class="form-actions" style="margin-top:12px">
-        <button class="btn btn-primary" type="submit">儲存</button>
+  <div class="card" style="max-width:700px">
+    <h3 style="margin-bottom:16px">編輯模板 <span style="font-family:monospace;color:#3f51b5">${esc(tpl.template_id)}</span></h3>
+    <form method="POST" action="${BASE}/reviews/${tpl.id}/edit" id="edit-tpl-form" onsubmit="return submitEditForm(event)">
+      <div class="form-row" style="margin-bottom:12px">
+        <div class="grow">
+          <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">類別</label>
+          <select id="edit-cat" name="category" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px" required>
+            ${catOptions}
+          </select>
+        </div>
+        <div class="grow">
+          <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">情境</label>
+          <select id="edit-sub" name="sub_category" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px" required></select>
+        </div>
+      </div>
+      <div id="edit-custom_wrap" style="display:none;margin-bottom:10px">
+        <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">自訂情境名稱</label>
+        <input type="text" id="edit-custom" placeholder="輸入自訂情境名稱" style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+      </div>
+      <div>
+        <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">模板內容</label>
+        <textarea name="template_text" rows="9" required style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:vertical">${esc(tpl.template_text)}</textarea>
+      </div>
+      <div class="form-actions" style="margin-top:14px">
+        <button class="btn btn-primary" type="submit">儲存變更</button>
         <a href="${BASE}/reviews" class="btn btn-ghost">取消</a>
       </div>
     </form>
-  </div>`;
+  </div>
+  <script>
+  function submitEditForm(e){
+    var custom = document.getElementById('edit-custom');
+    var sub    = document.getElementById('edit-sub');
+    if(sub.value==='__custom__'){
+      var v = (custom.value||'').trim();
+      if(!v){ alert('請輸入自訂情境名稱'); e.preventDefault(); return false; }
+      var h = document.createElement('input');
+      h.type='hidden'; h.name='sub_category'; h.value=v;
+      document.getElementById('edit-tpl-form').appendChild(h);
+      sub.name='';
+    }
+    return true;
+  }
+  </script>
+  ${reviewSubCatScript('edit-cat','edit-sub','edit-custom', tpl.category, tpl.sub_category)}`;
+
   res.send(layout('編輯模板', body, 'reviews'));
 });
 
 router.post('/reviews/:id/edit', requireLogin, (req, res) => {
-  const text = (req.body.template_text || '').trim();
-  if (text) db.updateReviewTemplateText(req.params.id, text);
+  const category     = (req.body.category     || '').trim();
+  const sub_category = (req.body.sub_category || '').trim();
+  const template_text= (req.body.template_text|| '').trim();
+  if (template_text) {
+    db.updateReviewTemplateFull(req.params.id, { category, sub_category, template_text });
+  }
   res.redirect(`${BASE}/reviews`);
 });
 
@@ -1112,6 +1287,11 @@ router.post('/reviews/:id/toggle', requireLogin, (req, res) => {
   const active = req.body.active === '1' ? 1 : 0;
   db.toggleReviewTemplate(req.params.id, active);
   res.redirect(`${BASE}/reviews`);
+});
+
+router.post('/reviews/:id/delete', requireLogin, (req, res) => {
+  db.deleteReviewTemplate(req.params.id);
+  res.redirect(`${BASE}/reviews?msg=deleted`);
 });
 
 // ── Product Info Knowledge Base ───────────────────

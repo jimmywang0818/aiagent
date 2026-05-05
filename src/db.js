@@ -291,6 +291,34 @@ function toggleReviewTemplate(id, active) {
   return db.prepare('UPDATE review_templates SET active=? WHERE id=?').run(active ? 1 : 0, id);
 }
 
+function getNextTemplateId() {
+  // Find the highest numeric T### id and return the next one
+  const row = db.prepare(
+    "SELECT template_id FROM review_templates WHERE template_id GLOB 'T[0-9]*' ORDER BY LENGTH(template_id) DESC, template_id DESC LIMIT 1"
+  ).get();
+  if (!row) return 'T001';
+  const num = parseInt(row.template_id.replace(/^T0*/, ''), 10) || 0;
+  return 'T' + String(num + 1).padStart(3, '0');
+}
+
+function addReviewTemplate({ category, sub_category, template_text, shop = 'ALL' }) {
+  const template_id = getNextTemplateId();
+  const r = db.prepare(
+    'INSERT INTO review_templates (template_id,shop,category,sub_category,template_text) VALUES (?,?,?,?,?)'
+  ).run(template_id, shop, category, sub_category, template_text);
+  return { id: r.lastInsertRowid, template_id };
+}
+
+function deleteReviewTemplate(id) {
+  return db.prepare('DELETE FROM review_templates WHERE id=?').run(id);
+}
+
+function updateReviewTemplateFull(id, { category, sub_category, template_text }) {
+  return db.prepare(
+    'UPDATE review_templates SET category=?,sub_category=?,template_text=? WHERE id=?'
+  ).run(category, sub_category, template_text, id);
+}
+
 // ── Product Info Knowledge Base ───────────────────
 // Migration: if old schema (has 'sku' col but not 'product_code'), rename and recreate
 {
@@ -473,7 +501,8 @@ module.exports = {
   getBrands, getBrandById, updateBrand,
   getRules, getGlobalRules, getCategoryRules, getEnabledRules, addRule, upsertRule, updateRule, deleteRule,
   getFaqs, getGlobalFaqs, getCategoryFaqs, getEnabledFaqs, addFaq, upsertFaq, updateFaq, deleteFaq,
-  getReviewTemplates, getAllReviewTemplates, updateReviewTemplateText, getReviewTemplateById, toggleReviewTemplate,
+  getReviewTemplates, getAllReviewTemplates, updateReviewTemplateText, getReviewTemplateById,
+  toggleReviewTemplate, getNextTemplateId, addReviewTemplate, deleteReviewTemplate, updateReviewTemplateFull,
   getProductInfoList, getProductInfoById, searchProductInfo, upsertProductInfo, updateProductInfo, deleteProductInfo,
   logMessage, getLogs, getLogRooms, getLogPlatforms, getRoomMessages,
 };
