@@ -106,12 +106,14 @@ async function getReviewReply({ reviewText, brandId, rating, hasImage }) {
     .map(t => `${t.template_id} | ${t.category} | ${t.sub_category}`)
     .join('\n');
 
-  const systemInstruction = `你是蝦皮評論回覆分類助理。根據顧客評論，從模板清單中選出最適合的一個，或決定後續動作。
+  const systemInstruction = `你是蝦皮評論回覆分類助理。根據顧客評論內容，從模板清單中選出最適合的一個，或決定後續動作。
+
+重要：評論可能以中文、英文或其他語言撰寫，請先理解評論意圖，再依規則處理。語言不同不是轉 needs_human 的理由。
 
 回覆規則（只回傳 JSON，不加任何其他文字）：
 1. 找到符合情境的模板 → {"action":"template","templateId":"T001"}
-2. 正面評論但沒有對應模板 → {"action":"custom","reply":"用繁體中文撰寫的友善回覆，可加 emoji，約 50-100 字"}
-3. 含客訴、退換貨要求、物流糾紛、負評、要求退款 → {"action":"needs_human","reason":"簡短說明原因"}`;
+2. 正面評論但沒有對應模板（包含英文好評）→ {"action":"custom","reply":"用繁體中文撰寫的友善回覆，可加 emoji，約 50-100 字"}
+3. 含客訴、退換貨要求、物流糾紛、強烈負評、要求退款 → {"action":"needs_human","reason":"簡短說明原因"}`;
 
   const userContent = `品牌：${brand?.name || '未知品牌'}
 品牌類別：${brandCategory || '未知'}
