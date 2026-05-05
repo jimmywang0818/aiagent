@@ -49,7 +49,7 @@ function getNoTextTemplate(rating, templateCategory) {
 
   // Determine sub_category keywords by rating
   let keywords;
-  if (rating === 5)      keywords = ['5星無評論', '0、5星'];
+  if (rating === 5)      keywords = ['5星無評論'];
   else if (rating === 4) keywords = ['4星無評論'];
   else                   keywords = ['3星無評論'];  // rating === 3
 
@@ -58,7 +58,7 @@ function getNoTextTemplate(rating, templateCategory) {
   );
   // Fallback: use any 5星無評論 通用 template
   const fallback = templates.filter(t =>
-    t.category === '通用' && (t.sub_category.includes('5星無評論') || t.sub_category.includes('0、5星'))
+    t.category === '通用' && t.sub_category.includes('5星無評論')
   );
   const pool = preferred.length ? preferred : fallback;
   if (!pool.length) return null;
