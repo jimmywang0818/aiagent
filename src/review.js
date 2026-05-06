@@ -80,8 +80,10 @@ async function getReviewReply({ reviewText, brandId, rating, hasImage }) {
   const brandCategory   = brand?.category || null;
   const templateCategory = CATEGORY_MAP[brandCategory] || null;
 
-  // Short-circuit: no-text / no-image reviews — skip AI
-  if (!reviewText?.trim() && !hasImage) {
+  // Short-circuit: no-text reviews (with or without image) — skip AI
+  // Image-only reviews are treated the same as blank reviews because
+  // we don't pass images to the AI, so sending them would produce garbage output.
+  if (!reviewText?.trim()) {
     // 1–2 star no text → needs human immediately
     if (rating >= 1 && rating <= 2) {
       const reason = `${rating}星無評論，需人工確認`;
