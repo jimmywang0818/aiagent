@@ -80,23 +80,19 @@ async function getReviewReply({ reviewText, brandId, rating, hasImage }) {
   const brandCategory   = brand?.category || null;
   const templateCategory = CATEGORY_MAP[brandCategory] || null;
 
-  // Short-circuit: no-text reviews (with or without image) — skip AI
-  // Image-only reviews are treated the same as blank reviews because
-  // we don't pass images to the AI, so sending them would produce garbage output.
+  // Short-circuit: 1–2 star always → needs human (regardless of text content)
+  if (rating <= 2) {
+    const reason = `${rating}星評論，需人工確認`;
+    console.log(`[review] ${rating}-star → needs_human`);
+    return { reply: null, source: 'needs_human', needsHuman: true, reason };
+  }
+
+  // Short-circuit: 3–5 star with no text → use template (skip AI, nothing to analyse)
   if (!reviewText?.trim()) {
-    // 1–2 star no text → needs human immediately
-    if (rating >= 1 && rating <= 2) {
-      const reason = `${rating}星無評論，需人工確認`;
-      console.log(`[review] ${rating}-star blank → needs_human`);
-      return { reply: null, source: 'needs_human', needsHuman: true, reason };
-    }
-    // 3–5 star no text → use template
-    if (rating >= 3 && rating <= 5) {
-      const result = getNoTextTemplate(rating, templateCategory);
-      if (result) {
-        console.log(`[review] ${rating}-star blank → template ${result.templateId} (no AI)`);
-        return result;
-      }
+    const result = getNoTextTemplate(rating, templateCategory);
+    if (result) {
+      console.log(`[review] ${rating}-star blank → template ${result.templateId} (no AI)`);
+      return result;
     }
   }
 
@@ -108,14 +104,19 @@ async function getReviewReply({ reviewText, brandId, rating, hasImage }) {
     .map(t => `${t.template_id} | ${t.category} | ${t.sub_category}`)
     .join('\n');
 
-  const systemInstruction = `你是蝦皮評論回覆分類助理。根據顧客評論內容，從模板清單中選出最適合的一個，或決定後續動作。
+  const systemInstruction = `你是蝦皮評論回覆助理。你的任務是為每一則評論撰寫一個友善的繁體中文回覆。
 
-重要：評論可能以中文、英文或其他語言撰寫，請先理解評論意圖，再依規則處理。語言不同不是轉 needs_human 的理由。
+重要規則：
+- 評論可能以中文、英文或任何語言撰寫，語言不同不影響處理方式，一律用繁體中文回覆
+- 預設行為是撰寫 custom 回覆，不確定時也請直接回覆，不要轉人工
+- 只有在評論明確包含以下內容時才轉人工：退貨/換貨要求、要求退款、強烈投訴、物流糾紛
 
-回覆規則（只回傳 JSON，不加任何其他文字）：
-1. 找到符合情境的模板 → {"action":"template","templateId":"T001"}
-2. 正面評論但沒有對應模板（包含英文好評）→ {"action":"custom","reply":"用繁體中文撰寫的友善回覆，可加 emoji，約 50-100 字"}
-3. 含客訴、退換貨要求、物流糾紛、強烈負評、要求退款 → {"action":"needs_human","reason":"簡短說明原因"}`;
+只回傳 JSON，不加任何其他文字：
+1. 找到完全符合情境的模板 → {"action":"template","templateId":"T001"}
+2. 所有其他情況（好評、英文評論、模糊內容、只提到圖片）→ {"action":"custom","reply":"實際的繁體中文回覆內容，可加 emoji，約 50-100 字"}
+3. 明確客訴／退換貨／退款要求 → {"action":"needs_human","reason":"簡短說明"}
+
+注意：reply 欄位請填入實際的回覆文字內容，不是格式說明。`;
 
   const userContent = `品牌：${brand?.name || '未知品牌'}
 品牌類別：${brandCategory || '未知'}
