@@ -348,7 +348,7 @@ function getReviewTemplates(templateCategory) {
 }
 
 function getAllReviewTemplates() {
-  return db.prepare('SELECT * FROM review_templates ORDER BY category, template_id').all();
+  return db.prepare('SELECT * FROM review_templates ORDER BY category, sub_category, template_id').all();
 }
 
 function updateReviewTemplateText(id, templateText) {
