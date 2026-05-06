@@ -1120,11 +1120,11 @@ router.get('/reviews', requireLogin, (req, res) => {
     const color       = catColors[cat] || '#546e7a';
     const activeCount = list.filter(t => t.active).length;
     const rows = list.map(t => `<tr>
-      <td width="60" style="font-family:monospace;font-size:12px">${esc(t.template_id)}</td>
-      <td style="font-size:12px;color:#888">${esc(t.sub_category)}</td>
-      <td style="max-width:360px;white-space:pre-wrap;font-size:12px;line-height:1.5">${esc(t.template_text)}</td>
-      <td width="70"><span class="badge ${t.active?'on':'off'}">${t.active?'啟用':'停用'}</span></td>
-      <td width="160" style="white-space:nowrap">
+      <td style="font-family:monospace;font-size:12px;vertical-align:top;padding-top:10px">${esc(t.template_id)}</td>
+      <td style="font-size:12px;color:#555;vertical-align:top;padding-top:10px;word-break:break-word">${esc(t.sub_category)}</td>
+      <td style="white-space:pre-wrap;font-size:12px;line-height:1.6;vertical-align:top;padding-top:10px;word-break:break-word">${esc(t.template_text)}</td>
+      <td style="vertical-align:top;padding-top:10px;text-align:center"><span class="badge ${t.active?'on':'off'}">${t.active?'啟用':'停用'}</span></td>
+      <td style="vertical-align:top;padding-top:8px;white-space:nowrap">
         <a href="${BASE}/reviews/${t.id}/edit" class="btn btn-primary btn-sm">編輯</a>
         <form method="POST" action="${BASE}/reviews/${t.id}/toggle" style="display:inline">
           <input type="hidden" name="active" value="${t.active?'0':'1'}">
@@ -1138,8 +1138,15 @@ router.get('/reviews', requireLogin, (req, res) => {
 
     return `<div class="section-title" style="color:${color}">${cat} <span style="font-weight:400;font-size:11px">(${activeCount}/${list.length} 啟用)</span></div>
     <div class="card" style="padding:0;margin-bottom:20px;overflow:hidden">
-      <table>
-        <thead><tr><th>ID</th><th>情境</th><th>模板內容</th><th>狀態</th><th>操作</th></tr></thead>
+      <table style="table-layout:fixed;width:100%">
+        <colgroup>
+          <col style="width:60px">
+          <col style="width:160px">
+          <col>
+          <col style="width:68px">
+          <col style="width:180px">
+        </colgroup>
+        <thead><tr><th>ID</th><th>情境</th><th>模板內容</th><th style="text-align:center">狀態</th><th>操作</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
