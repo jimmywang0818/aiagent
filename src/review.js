@@ -109,17 +109,21 @@ async function getReviewReply({ reviewText, brandId, rating, hasImage }) {
 重要規則：
 - 評論可能以中文、英文或任何語言撰寫，語言不同不影響處理方式，一律用繁體中文回覆
 - 預設行為是撰寫 custom 回覆，不確定時也請直接回覆，不要轉人工
-- 只有在評論明確包含以下內容時才轉人工：退貨/換貨要求、要求退款、強烈投訴、物流糾紛
+
+【星數條件】
+- 5 星評論：不論內容是否包含抱怨，一律回傳 custom 回覆（溫和回應輕微抱怨即可，絕對不轉人工）
+- 3–4 星評論：有明確客訴（退貨/換貨/退款/物流糾紛）才轉人工，其他一律 custom 回覆
 
 只回傳 JSON，不加任何其他文字：
 1. 找到完全符合情境的模板 → {"action":"template","templateId":"T001"}
-2. 所有其他情況（好評、英文評論、模糊內容、只提到圖片）→ {"action":"custom","reply":"實際的繁體中文回覆內容，可加 emoji，約 50-100 字"}
-3. 明確客訴／退換貨／退款要求 → {"action":"needs_human","reason":"簡短說明"}
+2. 所有其他情況 → {"action":"custom","reply":"實際的繁體中文回覆內容，可加 emoji，約 50-100 字"}
+3. 3–4 星且有明確客訴／退換貨／退款要求 → {"action":"needs_human","reason":"簡短說明"}
 
 注意：reply 欄位請填入實際的回覆文字內容，不是格式說明。`;
 
   const userContent = `品牌：${brand?.name || '未知品牌'}
 品牌類別：${brandCategory || '未知'}
+評論星數：${rating ?? '未知'} 星
 
 顧客評論：
 ${reviewText}
@@ -166,14 +170,20 @@ ${templateList}`;
   }
 
   // ── Needs human ──
+  // 5-star reviews never go to needs_human — override to custom
   if (parsed.action === 'needs_human') {
-    console.log(`[review] Needs human: ${parsed.reason}`);
-    return {
-      reply:      null,
-      source:     'needs_human',
-      needsHuman: true,
-      reason:     parsed.reason,
-    };
+    if (rating === 5) {
+      console.log(`[review] AI suggested needs_human for 5-star → overriding to custom`);
+      // Fall through to custom reply below
+    } else {
+      console.log(`[review] Needs human: ${parsed.reason}`);
+      return {
+        reply:      null,
+        source:     'needs_human',
+        needsHuman: true,
+        reason:     parsed.reason,
+      };
+    }
   }
 
   // ── Custom reply ──
