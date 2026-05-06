@@ -110,6 +110,10 @@ async function getReviewReply({ reviewText, brandId, rating, hasImage }) {
 - 評論可能以中文、英文或任何語言撰寫，語言不同不影響處理方式，一律用繁體中文回覆
 - 預設行為是撰寫 custom 回覆，不確定時也請直接回覆，不要轉人工
 
+【回覆寫作規範】
+- 開頭禁止使用「親愛的顧客您好」、「您好！」等問候語，直接以「感謝您」或「謝謝您」起頭
+- 品牌名稱若為 Tryme，一律以全大寫「TRYME」呈現
+
 【星數條件】
 - 5 星評論：不論內容是否包含抱怨，一律回傳 custom 回覆（溫和回應輕微抱怨即可，絕對不轉人工）
 - 3–4 星評論：有明確客訴（退貨/換貨/退款/物流糾紛）才轉人工，其他一律 custom 回覆
@@ -187,7 +191,9 @@ ${templateList}`;
   }
 
   // ── Custom reply ──
-  const reply = parsed.reply || '感謝您的評論與支持！💖';
+  let reply = parsed.reply || '感謝您的評論與支持！💖';
+  // Enforce brand name capitalisation regardless of AI output
+  reply = reply.replace(/tryme/gi, 'TRYME');
   console.log(`[review] Custom reply generated`);
   return { reply, source: 'custom', needsHuman: false };
 }
